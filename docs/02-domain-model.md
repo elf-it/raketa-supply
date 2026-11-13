@@ -1,6 +1,7 @@
 # Модель данных
 
-Реализация — `backend/app/models.py`.
+Реализация — `backend/app/models.py`. Схема разворачивается миграциями,
+см. [06-migrations.md](06-migrations.md).
 
 ## Ключевая идея
 

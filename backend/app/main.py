@@ -8,12 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import __version__
 from .api import api_router
 from .config import get_settings
-from .db import init_db
+from .db import engine
+from .migrations import assert_current
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    # Приложение не создаёт и не правит схему: это делает явный шаг развёртывания.
+    # Работать на устаревшей базе хуже, чем не запуститься.
+    assert_current(engine)
     yield
 
 

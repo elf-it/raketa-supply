@@ -13,3 +13,5 @@ ignore = ["B008"]  # Depends() в сигнатуре — идиома FastAPI
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
+# Тела миграций генерирует Alembic; длина строк в них не предмет для правки.
+"alembic/versions/*" = ["E501"]

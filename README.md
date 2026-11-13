@@ -54,9 +54,13 @@ SQLite в файле `backend/raketa.db`.
 cd backend
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements-dev.txt   # Linux/macOS: .venv/bin/python
-.venv/Scripts/python -m app.seed --reset                      # демо-данные
+.venv/Scripts/python -m app.seed --reset                      # схема + демо-данные
 .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000
 ```
+
+Без демо-данных схему разворачивает `alembic upgrade head`. Приложение миграции
+не применяет само: на старте оно проверяет ревизию и падает с подсказкой, если база
+устарела. Подробности — [docs/06-migrations.md](docs/06-migrations.md).
 
 Документация API — http://127.0.0.1:8000/docs
 
@@ -103,8 +107,6 @@ PostgreSQL для локальной разработки поднимается
   допущения — их нужно сверить с действующими файлами заказчика (вопрос Q-1).
 - HTTP-клиент WB написан, но не проверен на боевых ключах: кабинеты ещё не переданы
   (вопрос Q-3).
-- Нет Alembic-миграций: схема создаётся из моделей, и каждое её изменение требует
-  `python -m app.seed --reset`. На боевых данных так нельзя — это задача A-6.
 - Нет аутентификации и ролей, графиков и виртуализации таблицы.
 
 Полный перечень с приоритетами — в [BACKLOG.md](BACKLOG.md).

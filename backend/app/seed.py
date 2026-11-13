@@ -19,13 +19,13 @@ from pathlib import Path
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from . import migrations
 from .calc import shift_week, week_key, week_start
-from .db import SessionLocal, engine, init_db
+from .db import SessionLocal, engine
 from .integrations.wb import FixtureWbClient, sync_all
 from .models import (
     AdjustmentLog,
     AppSettings,
-    Base,
     Category,
     ForecastAdjustment,
     Marketplace,
@@ -360,9 +360,14 @@ def main(
 ) -> None:
     today = today or date.today()
     fixtures_dir = fixtures_dir or FIXTURES_DIR
+
+    # Схему разворачивают миграции, а не create_all: демо-данные должны ложиться
+    # ровно на ту же схему, что получит прод.
+    url = migrations.engine_url(engine)
     if reset_db:
-        Base.metadata.drop_all(bind=engine)
-    init_db()
+        migrations.downgrade(url, "base")
+    migrations.upgrade(url)
+
     with SessionLocal() as session:
         if not reset_db:
             reset(session)
