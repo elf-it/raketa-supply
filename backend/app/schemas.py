@@ -6,7 +6,7 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .calc import Level, Status
+from .calc import BulkOperation, Level, Status
 
 
 class BaseModel_(BaseModel):
@@ -101,6 +101,31 @@ class AdjustmentOut(BaseModel_):
     manual_forecast: float | None = None
     manual_adapted: float | None = None
     author: str | None = None
+
+
+class BulkAdjustmentIn(BaseModel_):
+    """Массовая правка прогноза (задача C-14).
+
+    `scale` — множитель в процентах, `delta` — штуки со знаком, `set` — значение,
+    `clear` — сброс к формуле, `move` — перенос спроса в `target_week`.
+    """
+
+    pair_ids: list[int] = Field(min_length=1)
+    weeks: list[str] = Field(min_length=1)
+    operation: BulkOperation
+    value: float | None = None
+    target_week: str | None = None
+    author: str | None = None
+
+
+class BulkAdjustmentOut(BaseModel_):
+    operation: BulkOperation
+    updated_cells: int
+    affected_pairs: int
+    skipped_closed: int
+    moved_units: float
+    weeks: list[str]
+    target_week: str | None = None
 
 
 class AdjustmentLogOut(BaseModel_):

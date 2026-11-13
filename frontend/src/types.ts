@@ -115,6 +115,27 @@ export interface PurchasePlan {
   overdue_count: number;
 }
 
+export type BulkOperation = 'scale' | 'delta' | 'set' | 'clear' | 'move';
+
+export interface BulkRequest {
+  pair_ids: number[];
+  weeks: string[];
+  operation: BulkOperation;
+  value?: number;
+  target_week?: string;
+  author?: string;
+}
+
+export interface BulkResult {
+  operation: BulkOperation;
+  updated_cells: number;
+  affected_pairs: number;
+  skipped_closed: number;
+  moved_units: number;
+  weeks: string[];
+  target_week: string | null;
+}
+
 export interface BasePotentialRow {
   pair_id: number;
   store_name: string;

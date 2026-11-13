@@ -7,6 +7,7 @@ from .aggregate import aggregate, aggregate_cells, worst_status
 from .purchase import apply_constraints, projected_stock, safety_stock, suggest_purchase
 from .series import compute_series, original_forecast, seasonal_demand
 from .types import (
+    BulkOperation,
     CalcSettings,
     Level,
     PurchaseParams,
@@ -27,6 +28,7 @@ from .weeks import (
 )
 
 __all__ = [
+    "BulkOperation",
     "CalcSettings",
     "Level",
     "PurchaseParams",

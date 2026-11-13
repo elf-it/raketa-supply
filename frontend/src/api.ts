@@ -1,5 +1,7 @@
 import type {
   BasePotentialRow,
+  BulkRequest,
+  BulkResult,
   Category,
   Matrix,
   MatrixFilters,
@@ -52,6 +54,12 @@ export const api = {
   ) =>
     request<unknown>(`/forecast/${pairId}/${week}`, {
       method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  bulkAdjust: (payload: BulkRequest) =>
+    request<BulkResult>('/forecast/bulk', {
+      method: 'POST',
       body: JSON.stringify(payload),
     }),
 

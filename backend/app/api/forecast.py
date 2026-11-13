@@ -4,8 +4,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..db import get_session
-from ..schemas import AdjustmentIn, AdjustmentLogOut, AdjustmentOut, CloseWeekIn
-from ..services.adjustments import adjustment_history, close_week, set_adjustment
+from ..schemas import (
+    AdjustmentIn,
+    AdjustmentLogOut,
+    AdjustmentOut,
+    BulkAdjustmentIn,
+    BulkAdjustmentOut,
+    CloseWeekIn,
+)
+from ..services.adjustments import (
+    adjustment_history,
+    bulk_adjust,
+    close_week,
+    set_adjustment,
+)
 
 router = APIRouter(prefix="/forecast", tags=["Прогноз"])
 
@@ -46,6 +58,34 @@ def put_adjustment(
         manual_adapted=row.manual_adapted,
         author=row.author,
     )
+
+
+@router.post(
+    "/bulk",
+    response_model=BulkAdjustmentOut,
+    summary="Массовая правка прогноза",
+)
+def post_bulk_adjustment(
+    payload: BulkAdjustmentIn, session: Session = Depends(get_session)
+) -> BulkAdjustmentOut:
+    """Правка сразу по набору позиций и недель.
+
+    Закрытые недели пропускаются — их план зафиксирован. Каждое изменение попадает
+    в журнал корректировок, поэтому массовую правку можно разобрать по шагам.
+    """
+    try:
+        result = bulk_adjust(
+            session,
+            pair_ids=payload.pair_ids,
+            weeks=payload.weeks,
+            operation=payload.operation,
+            value=payload.value,
+            target_week=payload.target_week,
+            author=payload.author,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BulkAdjustmentOut.model_validate(result)
 
 
 @router.get("/log", response_model=list[AdjustmentLogOut], summary="Журнал корректировок")

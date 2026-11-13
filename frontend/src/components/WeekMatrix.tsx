@@ -59,6 +59,10 @@ interface Props {
   groupMetric: string;
   onEdit: (pairId: number, week: string, field: string, value: number | null) => void;
   pendingCells: Set<string>;
+  /** Отметки строк для массовых правок; доступны только на уровне артикулов. */
+  selectedPairs: Set<number>;
+  onToggleRow: (pairId: number) => void;
+  onToggleAll: () => void;
 }
 
 export function WeekMatrix({
@@ -69,6 +73,9 @@ export function WeekMatrix({
   groupMetric,
   onEdit,
   pendingCells,
+  selectedPairs,
+  onToggleRow,
+  onToggleAll,
 }: Props) {
   const months = useMemo(() => monthSpans(weeks), [weeks]);
   const metrics =
@@ -82,6 +89,21 @@ export function WeekMatrix({
         <thead>
           <tr>
             <th className="col-name" rowSpan={2}>
+              {level === 'sku' && rows.length > 0 && (
+                <input
+                  type="checkbox"
+                  className="row-check"
+                  checked={selectedPairs.size === rows.length}
+                  ref={(node) => {
+                    if (node) {
+                      node.indeterminate =
+                        selectedPairs.size > 0 && selectedPairs.size < rows.length;
+                    }
+                  }}
+                  onChange={onToggleAll}
+                  title="Отметить все строки"
+                />
+              )}
               {level === 'store' ? 'Магазин' : level === 'category' ? 'Категория' : 'Артикул / товар'}
             </th>
             {level === 'sku' && (
@@ -122,6 +144,10 @@ export function WeekMatrix({
               metrics={metrics}
               onEdit={onEdit}
               pendingCells={pendingCells}
+              selected={
+                row.meta.pair_id !== undefined && selectedPairs.has(row.meta.pair_id)
+              }
+              onToggleRow={onToggleRow}
             />
           ))}
           {rows.length === 0 && (
@@ -155,17 +181,42 @@ interface RowBlockProps {
   metrics: MetricDef[];
   onEdit: Props['onEdit'];
   pendingCells: Set<string>;
+  selected: boolean;
+  onToggleRow: (pairId: number) => void;
 }
 
-function RowBlock({ row, level, weeks, metrics, onEdit, pendingCells }: RowBlockProps) {
+function RowBlock({
+  row,
+  level,
+  weeks,
+  metrics,
+  onEdit,
+  pendingCells,
+  selected,
+  onToggleRow,
+}: RowBlockProps) {
   const editable = level === 'sku' && row.meta.editable && row.meta.pair_id !== undefined;
 
   return (
     <>
       {metrics.map((metric, index) => (
-        <tr key={metric.id} className={index === metrics.length - 1 ? 'block-end' : undefined}>
+        <tr
+          key={metric.id}
+          className={[
+            index === metrics.length - 1 ? 'block-end' : '',
+            selected ? 'selected' : '',
+          ].join(' ')}
+        >
           {index === 0 && (
             <th className="col-name" rowSpan={metrics.length}>
+              {editable && (
+                <input
+                  type="checkbox"
+                  className="row-check"
+                  checked={selected}
+                  onChange={() => onToggleRow(row.meta.pair_id as number)}
+                />
+              )}
               <div className="row-title">{row.title}</div>
               {row.subtitle && <div className="row-subtitle">{row.subtitle}</div>}
               <div className="row-badges">

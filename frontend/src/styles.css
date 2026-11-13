@@ -326,6 +326,25 @@ table.matrix td.pending {
   opacity: 0.5;
 }
 
+.row-check {
+  float: left;
+  margin: 2px 8px 0 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+table.matrix tr.selected td,
+table.matrix tr.selected th.col-name,
+table.matrix tr.selected th.col-metric {
+  background: #f0f6f2;
+}
+
+table.matrix tr.selected td.closed {
+  background: #e8efe9;
+}
+
 .row-title {
   font-weight: 600;
 }
@@ -563,6 +582,89 @@ button:disabled:hover {
   color: var(--danger);
   font-size: 12px;
   margin: 0 0 8px;
+}
+
+/* Массовые правки */
+
+.bulk {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+/* Кнопка держится у правого края и не перепрыгивает на другую строку,
+   когда набор контролов меняется вместе с операцией. */
+.bulk-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.bulk-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bulk-apply {
+  flex: none;
+  white-space: nowrap;
+}
+
+.bulk-title {
+  font-weight: 600;
+}
+
+.bulk-scope {
+  color: var(--muted);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bulk-row select {
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.bulk-value {
+  font: inherit;
+  width: 72px;
+  text-align: right;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.bulk-value.invalid {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.bulk-hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.bulk-hint .danger {
+  color: var(--danger);
+}
+
+.bulk-note {
+  color: var(--accent);
 }
 
 /* Сезонность */

@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api } from './api';
 import { BasePotentialPage } from './components/BasePotentialPage';
+import { BulkPanel } from './components/BulkPanel';
 import { KpiBar } from './components/KpiBar';
 import { PurchasePanel } from './components/PurchasePanel';
 import { SeasonalityPage } from './components/SeasonalityPage';
 import { GROUP_METRICS, WeekMatrix } from './components/WeekMatrix';
-import type { Category, Level, Matrix, PurchasePlan, Store } from './types';
+import type { BulkRequest, Category, Level, Matrix, PurchasePlan, Store } from './types';
 
 const LEVELS: { id: Level; label: string }[] = [
   { id: 'store', label: 'Магазины' },
@@ -42,6 +43,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
+  const [selectedPairs, setSelectedPairs] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   // Стабильные ссылки: иначе дочерние экраны перезапрашивают данные на каждый рендер.
   const pageFilters = useMemo(
@@ -85,6 +88,52 @@ export default function App() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Отметки относятся к конкретной выборке строк: при смене фильтров они бессмысленны.
+  useEffect(() => {
+    setSelectedPairs(new Set());
+  }, [pageFilters, level]);
+
+  const skuRowIds = useMemo(
+    () =>
+      matrix?.level === 'sku'
+        ? matrix.rows
+            .map((row) => row.meta.pair_id)
+            .filter((id): id is number => id !== undefined)
+        : [],
+    [matrix],
+  );
+
+  const toggleRow = useCallback((pairId: number) => {
+    setSelectedPairs((prev) => {
+      const next = new Set(prev);
+      if (next.has(pairId)) next.delete(pairId);
+      else next.add(pairId);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    setSelectedPairs((prev) =>
+      prev.size === skuRowIds.length ? new Set() : new Set(skuRowIds),
+    );
+  }, [skuRowIds]);
+
+  const applyBulk = useCallback(
+    async (request: BulkRequest) => {
+      setBulkBusy(true);
+      try {
+        await api.bulkAdjust(request);
+        setMatrix(await api.matrix(filters));
+        setError(null);
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
+        setBulkBusy(false);
+      }
+    },
+    [filters],
+  );
 
   const handleEdit = useCallback(
     async (pairId: number, week: string, field: string, value: number | null) => {
@@ -217,6 +266,18 @@ export default function App() {
             </span>
           </div>
 
+          {matrix.level === 'sku' && (
+            <BulkPanel
+              weeks={matrix.weeks}
+              pairIds={selectedPairs.size > 0 ? [...selectedPairs] : skuRowIds}
+              selectionCount={selectedPairs.size}
+              totalRows={skuRowIds.length}
+              busy={bulkBusy}
+              onApply={applyBulk}
+              onClearSelection={() => setSelectedPairs(new Set())}
+            />
+          )}
+
           <WeekMatrix
             level={matrix.level}
             weeks={matrix.weeks}
@@ -225,6 +286,9 @@ export default function App() {
             groupMetric={groupMetric}
             onEdit={handleEdit}
             pendingCells={pendingCells}
+            selectedPairs={selectedPairs}
+            onToggleRow={toggleRow}
+            onToggleAll={toggleAll}
           />
 
           <p className="footnote">
