@@ -1,0 +1,204 @@
+"""Схемы HTTP API."""
+
+from __future__ import annotations
+
+from datetime import date
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from .calc import Level, Status
+
+
+class BaseModel_(BaseModel):
+    """Базовая схема: разрешает собирать ответ прямо из dataclass'ов сервисов."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class StoreOut(BaseModel_):
+    id: int
+    code: str
+    name: str
+    marketplace: str
+    is_active: bool
+
+
+class CategoryOut(BaseModel_):
+    id: int
+    name: str
+    niche: str | None = None
+    abc_class: str | None = None
+
+
+class ProductOut(BaseModel_):
+    id: int
+    vendor_code: str
+    title: str
+    category: str | None = None
+    supplier: str | None = None
+    cost_price: float
+    price: float
+    volume_m3: float
+    lead_time_days: int | None = None
+    moq: int | None = None
+    pack_size: int | None = None
+
+
+class WeekOut(BaseModel_):
+    key: str
+    year: int
+    iso_week: int
+    start: str
+    month_label: str
+    is_closed: bool
+    is_current: bool
+
+
+class RowOut(BaseModel_):
+    key: str
+    title: str
+    subtitle: str | None = None
+    status: Status
+    meta: dict = Field(default_factory=dict)
+    metrics: dict[str, dict[str, float | bool | None]] = Field(default_factory=dict)
+
+
+class KpiOut(BaseModel_):
+    last_closed_week: str
+    plan_window_weeks: int
+    plan_units: float
+    fact_units: float
+    plan_completion_percent: float | None = None
+    plan_delta_units: float
+    next_week: str | None = None
+    next_week_forecast: float
+    short_skus: int
+    over_skus: int
+    sku_count: int
+
+
+class MatrixOut(BaseModel_):
+    level: Level
+    weeks: list[WeekOut]
+    rows: list[RowOut]
+    totals: RowOut
+    kpi: KpiOut
+    context: dict
+
+
+class AdjustmentIn(BaseModel_):
+    diff_percent: float | None = Field(default=None, ge=0, le=1000)
+    manual_forecast: float | None = Field(default=None, ge=0)
+    manual_adapted: float | None = Field(default=None, ge=0)
+    clear: list[str] = Field(default_factory=list)
+    author: str | None = None
+
+
+class AdjustmentOut(BaseModel_):
+    pair_id: int
+    week: str
+    diff_percent: float | None = None
+    manual_forecast: float | None = None
+    manual_adapted: float | None = None
+    author: str | None = None
+
+
+class AdjustmentLogOut(BaseModel_):
+    id: int
+    pair_id: int
+    week: str
+    field: str
+    old_value: float | None = None
+    new_value: float | None = None
+    author: str | None = None
+    created_at: str
+
+
+class PurchaseParamsOut(BaseModel_):
+    lead_time_days: int
+    moq: int
+    pack_size: int
+    coverage_weeks: int
+    safety_weeks: float
+    cost_price: float
+    volume_m3: float
+
+
+class PurchaseRowOut(BaseModel_):
+    pair_id: int
+    store_name: str
+    vendor_code: str
+    title: str
+    category: str | None = None
+    supplier: str | None = None
+    current_stock: float
+    needed: bool
+    shortage_week: str | None = None
+    order_date: date | None = None
+    arrival_week: str | None = None
+    qty: int
+    qty_before_constraints: float
+    cost: float
+    volume_m3: float
+    safety_stock: float
+    is_overdue: bool
+    reason: str
+    params: PurchaseParamsOut
+
+
+class PurchasePlanOut(BaseModel_):
+    rows: list[PurchaseRowOut]
+    total_qty: int
+    total_cost: float
+    total_volume_m3: float
+    overdue_count: int
+
+
+class BasePotentialIn(BaseModel_):
+    base_potential: float = Field(ge=0)
+
+
+class BasePotentialOut(BaseModel_):
+    pair_id: int
+    store_name: str
+    vendor_code: str
+    title: str
+    category: str | None = None
+    base_potential: float
+
+
+class SeasonalityIn(BaseModel_):
+    coefficients: dict[int, float]
+
+
+class SeasonalityOut(BaseModel_):
+    category_id: int
+    category: str
+    coefficients: dict[int, float]
+
+
+class CloseWeekIn(BaseModel_):
+    week: str
+    author: str | None = None
+
+
+class SyncOut(BaseModel_):
+    store_code: str
+    facts_upserted: int
+    unknown_nm_ids: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+
+class SettingsOut(BaseModel_):
+    last_closed_week: str | None = None
+    horizon_weeks: int
+    history_weeks: int
+    over_coverage_weeks: float
+    short_horizon_weeks: int
+    demand_avg_weeks: int
+    default_lead_time_days: int
+    default_moq: int
+    default_pack_size: int
+    default_coverage_weeks: int
+    default_safety_weeks: float
+    wb_client: str

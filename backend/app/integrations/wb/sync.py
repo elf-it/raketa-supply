@@ -1,0 +1,141 @@
+"""Нормализация данных WB в недельные факты.
+
+Загрузка идемпотентна: ключ `(store_product_id, week)`, повторный прогон того же
+периода не плодит дубли. Данные разных кабинетов не смешиваются — каждая строка
+привязана к паре (магазин, товар), а пара принадлежит ровно одному кабинету
+(критерий приёмки № 1).
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ...calc import week_key
+from ...models import Store, StoreProduct, SyncRun, SyncStatus, WeekFact
+from .client import WbClient
+
+
+@dataclass
+class SyncReport:
+    store_code: str
+    facts_upserted: int = 0
+    unknown_nm_ids: list[str] | None = None
+    error: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None
+
+
+def _pair_index(session: Session, store_id: int) -> dict[str, int]:
+    """nm_id → store_product_id в пределах одного кабинета."""
+    rows = session.execute(
+        select(StoreProduct.nm_id, StoreProduct.id).where(StoreProduct.store_id == store_id)
+    ).all()
+    return {str(nm_id): pair_id for nm_id, pair_id in rows if nm_id}
+
+
+def sync_store(
+    session: Session,
+    store: Store,
+    client: WbClient,
+    date_from: date,
+) -> SyncReport:
+    """Загружает продажи и остатки одного кабинета в недельные факты."""
+    run = SyncRun(store_id=store.id, status=SyncStatus.RUNNING)
+    session.add(run)
+    session.commit()
+
+    report = SyncReport(store_code=store.code, unknown_nm_ids=[])
+    try:
+        pairs = _pair_index(session, store.id)
+        sales = client.fetch_sales(store.code, date_from)
+        stocks = client.fetch_stocks(store.code, date_from)
+
+        weekly: dict[tuple[int, str], dict[str, float]] = defaultdict(
+            lambda: {"order_units": 0.0, "buyout_units": 0.0, "sales_units": 0.0}
+        )
+        unknown: set[str] = set()
+
+        for row in sales:
+            pair_id = pairs.get(row.nm_id)
+            if pair_id is None:
+                unknown.add(row.nm_id)
+                continue
+            bucket = weekly[(pair_id, week_key(row.day))]
+            bucket["order_units"] += row.order_units
+            bucket["buyout_units"] += row.buyout_units
+            bucket["sales_units"] += row.sales_units
+
+        # Остаток недели — последнее известное значение внутри недели.
+        stock_end: dict[tuple[int, str], tuple[date, float]] = {}
+        for row in stocks:
+            pair_id = pairs.get(row.nm_id)
+            if pair_id is None:
+                unknown.add(row.nm_id)
+                continue
+            key = (pair_id, week_key(row.day))
+            current = stock_end.get(key)
+            if current is None or row.day >= current[0]:
+                stock_end[key] = (row.day, row.quantity)
+
+        touched = set(weekly) | set(stock_end)
+        existing = {
+            (f.store_product_id, f.week): f
+            for f in session.scalars(
+                select(WeekFact).where(
+                    WeekFact.store_product_id.in_({k[0] for k in touched} or {-1})
+                )
+            ).all()
+        }
+
+        for key in sorted(touched):
+            pair_id, week = key
+            values = weekly.get(key)
+            fact = existing.get(key)
+            if fact is None:
+                fact = WeekFact(store_product_id=pair_id, week=week)
+                session.add(fact)
+            if values is not None:
+                fact.order_units = values["order_units"]
+                fact.buyout_units = values["buyout_units"]
+                fact.sales_units = values["sales_units"]
+            if key in stock_end:
+                fact.stock_end_units = stock_end[key][1]
+            fact.source = "wb"
+            report.facts_upserted += 1
+
+        report.unknown_nm_ids = sorted(unknown)
+        run.status = SyncStatus.SUCCESS
+        run.facts_upserted = report.facts_upserted
+        if unknown:
+            run.message = f"не сопоставлено номенклатур: {len(unknown)}"
+        run.finished_at = datetime.now()
+        session.commit()
+    except Exception as exc:  # noqa: BLE001 — любая ошибка должна попасть в журнал
+        session.rollback()
+        report.error = f"{type(exc).__name__}: {exc}"
+        run = session.get(SyncRun, run.id)
+        if run is not None:
+            run.status = SyncStatus.FAILED
+            run.message = report.error
+            run.finished_at = datetime.now()
+            session.commit()
+    return report
+
+
+def sync_all(
+    session: Session,
+    client: WbClient,
+    days: int = 90,
+    today: date | None = None,
+) -> list[SyncReport]:
+    """Синхронизирует все активные кабинеты WB одновременно."""
+    date_from = (today or date.today()) - timedelta(days=days)
+    stores = session.scalars(select(Store).where(Store.is_active.is_(True))).all()
+    return [sync_store(session, store, client, date_from) for store in stores]

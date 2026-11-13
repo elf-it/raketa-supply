@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Сгенерированные выгрузки WB для разработки (создаются `python -m app.seed`)
+backend/app/integrations/wb/fixtures/*.json
+
+# База разработки
+*.db
+*.db-journal
+*.sqlite3
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Окружение
+.env
+.env.local
+
+# Редакторы и ОС
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

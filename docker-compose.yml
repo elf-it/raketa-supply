@@ -1,0 +1,22 @@
+# PostgreSQL для локальной разработки: docker compose up -d db
+# Приложение по умолчанию работает на SQLite, Postgres включается через DATABASE_URL:
+#   DATABASE_URL=postgresql+psycopg://raketa:raketa@localhost:5432/raketa
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: raketa
+      POSTGRES_PASSWORD: raketa
+      POSTGRES_DB: raketa
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U raketa']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
