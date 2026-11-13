@@ -3,6 +3,7 @@ import type {
   BulkRequest,
   BulkResult,
   Category,
+  CurrentUser,
   JournalBatchPage,
   JournalPage,
   JournalQuery,
@@ -15,6 +16,29 @@ import type {
 
 const BASE = '/api/v1';
 
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/**
+ * Вызывается, когда сессия перестала действовать: сервер ответил 401.
+ * Приложение подписывается на это и возвращает пользователя на экран входа.
+ */
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: () => void): void {
+  onUnauthorized = handler;
+}
+
+/** Пути, на которых 401 — нормальный ответ, а не потеря сессии. */
+const AUTH_PATHS = ['/auth/login', '/auth/me'];
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     headers: { 'Content-Type': 'application/json' },
@@ -22,7 +46,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`${response.status} ${response.statusText}: ${text.slice(0, 300)}`);
+    let detail = text.slice(0, 300);
+    try {
+      detail = (JSON.parse(text).detail as string) ?? detail;
+    } catch {
+      // Ответ не JSON — оставляем как есть.
+    }
+    if (response.status === 401 && !AUTH_PATHS.some((p) => path.startsWith(p))) {
+      onUnauthorized?.();
+    }
+    throw new ApiError(response.status, detail);
   }
   return (await response.json()) as T;
 }
@@ -48,6 +81,16 @@ function journalQuery(query: JournalQuery, limit: number, offset: number): strin
 }
 
 export const api = {
+  me: () => request<CurrentUser>('/auth/me'),
+
+  login: (email: string, password: string) =>
+    request<CurrentUser>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
+
+  logout: () => request<unknown>('/auth/logout', { method: 'POST' }),
+
   stores: () => request<Store[]>('/catalog/stores'),
   categories: () => request<Category[]>('/catalog/categories'),
 

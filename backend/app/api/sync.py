@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_session
 from ..integrations.wb import make_client, sync_all
-from ..models import SyncRun
+from ..models import SyncRun, User
 from ..schemas import SyncOut
+from .deps import require_editor
 
 router = APIRouter(prefix="/sync", tags=["Синхронизация"])
 
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/sync", tags=["Синхронизация"])
 @router.post("/wb", response_model=list[SyncOut], summary="Загрузить данные всех кабинетов WB")
 def post_sync_wb(
     days: int = Query(90, ge=1, le=400, description="Глубина загрузки в днях"),
+    _: User = Depends(require_editor),
     session: Session = Depends(get_session),
 ) -> list[SyncOut]:
     """Загружает все активные кабинеты одновременно, не смешивая магазины.

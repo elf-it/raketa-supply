@@ -63,6 +63,8 @@ interface Props {
   selectedPairs: Set<number>;
   onToggleRow: (pairId: number) => void;
   onToggleAll: () => void;
+  /** Роль «просмотр» видит те же числа, но ничего не правит. */
+  canEdit: boolean;
 }
 
 export function WeekMatrix({
@@ -76,6 +78,7 @@ export function WeekMatrix({
   selectedPairs,
   onToggleRow,
   onToggleAll,
+  canEdit,
 }: Props) {
   const months = useMemo(() => monthSpans(weeks), [weeks]);
   const metrics =
@@ -89,7 +92,7 @@ export function WeekMatrix({
         <thead>
           <tr>
             <th className="col-name" rowSpan={2}>
-              {level === 'sku' && rows.length > 0 && (
+              {level === 'sku' && rows.length > 0 && canEdit && (
                 <input
                   type="checkbox"
                   className="row-check"
@@ -148,6 +151,7 @@ export function WeekMatrix({
                 row.meta.pair_id !== undefined && selectedPairs.has(row.meta.pair_id)
               }
               onToggleRow={onToggleRow}
+              canEdit={canEdit}
             />
           ))}
           {rows.length === 0 && (
@@ -183,6 +187,7 @@ interface RowBlockProps {
   pendingCells: Set<string>;
   selected: boolean;
   onToggleRow: (pairId: number) => void;
+  canEdit: boolean;
 }
 
 function RowBlock({
@@ -194,8 +199,10 @@ function RowBlock({
   pendingCells,
   selected,
   onToggleRow,
+  canEdit,
 }: RowBlockProps) {
-  const editable = level === 'sku' && row.meta.editable && row.meta.pair_id !== undefined;
+  const editable =
+    canEdit && level === 'sku' && row.meta.editable && row.meta.pair_id !== undefined;
 
   return (
     <>

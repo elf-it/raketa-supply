@@ -15,6 +15,7 @@ function format(value: number | null): string {
 interface Props {
   filters: Omit<MatrixFilters, 'level'>;
   onError: (message: string | null) => void;
+  canEdit: boolean;
 }
 
 /**
@@ -24,7 +25,7 @@ interface Props {
  * полученная обратным ходом: факт делится на коэффициент сезонности той же недели.
  * Недели, в которых остаток упал до нуля, в оценку не входят — дефицит занижает факт.
  */
-export function BasePotentialPage({ filters, onError }: Props) {
+export function BasePotentialPage({ filters, onError, canEdit }: Props) {
   const [factWeeks, setFactWeeks] = useState(8);
   const [rows, setRows] = useState<BasePotentialRow[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -124,10 +125,14 @@ export function BasePotentialPage({ filters, onError }: Props) {
                   <td>{row.store_name}</td>
                   <td>{row.category ?? '—'}</td>
                   <td className="num">
-                    <EditableCell
-                      value={row.base_potential}
-                      onCommit={(value) => void save(row.pair_id, value)}
-                    />
+                    {canEdit ? (
+                      <EditableCell
+                        value={row.base_potential}
+                        onCommit={(value) => void save(row.pair_id, value)}
+                      />
+                    ) : (
+                      <span className="value">{format(row.base_potential)}</span>
+                    )}
                   </td>
                   <td className="num">
                     {format(row.avg_fact_units)}
@@ -141,13 +146,15 @@ export function BasePotentialPage({ filters, onError }: Props) {
                     {delta === null ? '—' : `${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(0)}%`}
                   </td>
                   <td>
-                    <button
-                      className="link"
-                      disabled={row.suggested_potential === null}
-                      onClick={() => void applySuggested(row)}
-                    >
-                      Принять оценку
-                    </button>
+                    {canEdit && (
+                      <button
+                        className="link"
+                        disabled={row.suggested_potential === null}
+                        onClick={() => void applySuggested(row)}
+                      >
+                        Принять оценку
+                      </button>
+                    )}
                   </td>
                 </tr>
               );

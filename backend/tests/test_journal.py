@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from conftest import EDITOR
+
 
 def pick(client, count=3):
     payload = client.get("/api/v1/matrix?level=sku").json()
@@ -19,7 +21,7 @@ def test_entries_carry_product_names(client):
     pair_ids, weeks = pick(client, 1)
     client.put(
         f"/api/v1/forecast/{pair_ids[0]}/{weeks[0]}",
-        json={"manual_forecast": 321, "author": "снабженец"},
+        json={"manual_forecast": 321},
     )
 
     page = client.get(f"/api/v1/forecast/log?pair_id={pair_ids[0]}").json()
@@ -33,7 +35,7 @@ def test_entries_carry_product_names(client):
     assert entry["operation"] == "manual"
     assert entry["batch_id"] is None
     assert entry["new_value"] == 321
-    assert entry["author"] == "снабженец"
+    assert entry["author"] == EDITOR[2]
 
     client.put(f"/api/v1/forecast/{pair_ids[0]}/{weeks[0]}", json={"clear": ["manual_forecast"]})
 
@@ -50,7 +52,6 @@ def test_bulk_edit_collapses_into_one_operation(client):
             "weeks": weeks,
             "operation": "scale",
             "value": 130,
-            "author": "старший снабженец",
         },
     ).json()
     batch_id = result["batch_id"]
@@ -61,7 +62,7 @@ def test_bulk_edit_collapses_into_one_operation(client):
 
     batch = next(b for b in batches["batches"] if b["batch_id"] == batch_id)
     assert batch["operation"] == "scale"
-    assert batch["author"] == "старший снабженец"
+    assert batch["author"] == EDITOR[2]
     assert batch["cells"] == result["updated_cells"]
     assert batch["pairs"] == len(pair_ids)
     assert batch["week_from"] == weeks[0]
@@ -104,7 +105,6 @@ def test_filters_narrow_the_journal(client):
             "weeks": weeks,
             "operation": "set",
             "value": 7,
-            "author": "фильтруемый",
         },
     )
 
@@ -112,17 +112,15 @@ def test_filters_narrow_the_journal(client):
     target = next(r for r in rows if r["meta"]["pair_id"] == pair_ids[0])
     store_id = target["meta"]["store_id"]
 
-    by_author = client.get("/api/v1/forecast/log?author=фильтруемый&limit=500").json()
+    by_author = client.get("/api/v1/forecast/log?author=анна&limit=500").json()
     assert by_author["total"] > 0
-    assert all(e["author"] == "фильтруемый" for e in by_author["entries"])
+    assert all(e["author"] == EDITOR[2] for e in by_author["entries"])
 
-    by_store = client.get(
-        f"/api/v1/forecast/log?author=фильтруемый&store_id={store_id}&limit=500"
-    ).json()
+    by_store = client.get(f"/api/v1/forecast/log?author=анна&store_id={store_id}&limit=500").json()
     assert 0 < by_store["total"] <= by_author["total"]
 
     by_week = client.get(
-        f"/api/v1/forecast/log?author=фильтруемый&week_from={weeks[1]}&week_to={weeks[1]}"
+        f"/api/v1/forecast/log?author=анна&week_from={weeks[1]}&week_to={weeks[1]}"
     ).json()
     assert by_week["total"] > 0
     assert {e["week"] for e in by_week["entries"]} == {weeks[1]}
@@ -146,15 +144,14 @@ def test_pagination_walks_the_whole_journal(client):
             "weeks": weeks,
             "operation": "set",
             "value": 11,
-            "author": "страничный",
         },
     )
 
-    first = client.get("/api/v1/forecast/log?author=страничный&limit=5&offset=0").json()
+    first = client.get("/api/v1/forecast/log?limit=5&offset=0").json()
     assert first["total"] >= 6
     assert len(first["entries"]) == 5
 
-    second = client.get("/api/v1/forecast/log?author=страничный&limit=5&offset=5").json()
+    second = client.get("/api/v1/forecast/log?limit=5&offset=5").json()
     assert second["total"] == first["total"]
 
     ids = {e["id"] for e in first["entries"]} | {e["id"] for e in second["entries"]}
@@ -203,7 +200,6 @@ def test_move_batch_spans_sources_and_target(client):
             "weeks": weeks,
             "operation": "move",
             "target_week": target,
-            "author": "перенос",
         },
     ).json()
 

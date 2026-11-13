@@ -251,11 +251,10 @@ def test_bulk_edits_land_in_the_journal(client, scope):
             "weeks": scope["weeks"],
             "operation": "set",
             "value": 123,
-            "author": "массовая правка",
         },
     )
     log = client.get(f"/api/v1/forecast/log?pair_id={pair_id}&limit=500").json()
-    entries = [e for e in log["entries"] if e["author"] == "массовая правка"]
+    entries = [e for e in log["entries"] if e["new_value"] == 123]
     assert len(entries) >= len(scope["weeks"])
     assert {e["week"] for e in entries} >= set(scope["weeks"])
     assert all(e["new_value"] == 123 for e in entries)

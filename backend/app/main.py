@@ -16,6 +16,7 @@ from .migrations import assert_current
 async def lifespan(app: FastAPI):
     # Приложение не создаёт и не правит схему: это делает явный шаг развёртывания.
     # Работать на устаревшей базе хуже, чем не запуститься.
+    get_settings().validate_runtime()
     assert_current(engine)
     yield
 
@@ -31,6 +32,8 @@ def create_app() -> FastAPI:
         ),
         lifespan=lifespan,
     )
+    # allow_credentials нужен для сессионной куки, поэтому список источников
+    # обязан быть конкретным: со звёздочкой браузер куку не отправит.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,

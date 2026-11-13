@@ -7,12 +7,40 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from .calc import BulkOperation, Level, Status
+from .models import Role
 
 
 class BaseModel_(BaseModel):
     """Базовая схема: разрешает собирать ответ прямо из dataclass'ов сервисов."""
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LoginIn(BaseModel_):
+    email: str = Field(min_length=3, max_length=190)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class UserOut(BaseModel_):
+    id: int
+    email: str
+    full_name: str
+    role: Role
+    is_active: bool
+
+
+class UserCreateIn(BaseModel_):
+    email: str = Field(min_length=3, max_length=190)
+    full_name: str = Field(min_length=1, max_length=128)
+    role: Role = Role.VIEWER
+    password: str = Field(min_length=8, max_length=256)
+
+
+class UserUpdateIn(BaseModel_):
+    full_name: str | None = Field(default=None, min_length=1, max_length=128)
+    role: Role | None = None
+    is_active: bool | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=256)
 
 
 class StoreOut(BaseModel_):
@@ -87,11 +115,16 @@ class MatrixOut(BaseModel_):
 
 
 class AdjustmentIn(BaseModel_):
+    """Правка ячейки.
+
+    Автора клиент не передаёт: он берётся из сессии. Журнал, в котором автора
+    подставляет сам клиент, ничего не доказывает.
+    """
+
     diff_percent: float | None = Field(default=None, ge=0, le=1000)
     manual_forecast: float | None = Field(default=None, ge=0)
     manual_adapted: float | None = Field(default=None, ge=0)
     clear: list[str] = Field(default_factory=list)
-    author: str | None = None
 
 
 class AdjustmentOut(BaseModel_):
@@ -115,7 +148,6 @@ class BulkAdjustmentIn(BaseModel_):
     operation: BulkOperation
     value: float | None = None
     target_week: str | None = None
-    author: str | None = None
 
 
 class BulkAdjustmentOut(BaseModel_):
@@ -249,7 +281,6 @@ class SeasonalityOut(BaseModel_):
 
 class CloseWeekIn(BaseModel_):
     week: str
-    author: str | None = None
 
 
 class SyncOut(BaseModel_):

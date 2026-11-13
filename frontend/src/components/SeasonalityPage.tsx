@@ -23,6 +23,7 @@ function parseCoefficient(raw: string): number | null {
 
 interface Props {
   onError: (message: string | null) => void;
+  canEdit: boolean;
 }
 
 /**
@@ -31,7 +32,7 @@ interface Props {
  * Правки копятся локально и уходят на сервер одной кнопкой: 53 поля — это слишком
  * много, чтобы бить сеть запросом на каждую ячейку.
  */
-export function SeasonalityPage({ onError }: Props) {
+export function SeasonalityPage({ onError, canEdit }: Props) {
   const [rows, setRows] = useState<SeasonalityRow[]>([]);
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [draft, setDraft] = useState<Record<number, string>>({});
@@ -133,18 +134,20 @@ export function SeasonalityPage({ onError }: Props) {
             коэффициент его категории, поэтому правка меняет прогноз всех товаров категории.
           </p>
         </div>
-        <div className="panel-totals">
-          <button className="ghost" onClick={() => setDraft({})} disabled={changedCount === 0}>
-            Отменить правки
-          </button>
-          <button
-            className="primary"
-            onClick={() => void save()}
-            disabled={changedCount === 0 || invalid || saving}
-          >
-            {saving ? 'Сохраняю…' : `Сохранить${changedCount ? ` (${changedCount})` : ''}`}
-          </button>
-        </div>
+        {canEdit && (
+          <div className="panel-totals">
+            <button className="ghost" onClick={() => setDraft({})} disabled={changedCount === 0}>
+              Отменить правки
+            </button>
+            <button
+              className="primary"
+              onClick={() => void save()}
+              disabled={changedCount === 0 || invalid || saving}
+            >
+              {saving ? 'Сохраняю…' : `Сохранить${changedCount ? ` (${changedCount})` : ''}`}
+            </button>
+          </div>
+        )}
       </header>
 
       <div className="season-controls">
@@ -162,7 +165,7 @@ export function SeasonalityPage({ onError }: Props) {
           </select>
         </label>
 
-        <div className="range-apply">
+        <div className="range-apply" hidden={!canEdit}>
           <span className="muted">Задать диапазону</span>
           <input
             type="number"
@@ -216,10 +219,11 @@ export function SeasonalityPage({ onError }: Props) {
               <input
                 value={raw}
                 inputMode="decimal"
+                readOnly={!canEdit}
                 onChange={(event) =>
                   setDraft((prev) => ({ ...prev, [week]: event.target.value }))
                 }
-                onFocus={(event) => event.target.select()}
+                onFocus={(event) => canEdit && event.target.select()}
               />
             </div>
           );

@@ -41,6 +41,21 @@ class SupplyStatus(str, enum.Enum):
     RECEIVED = "received"
 
 
+class Role(str, enum.Enum):
+    """Права доступа (требование приёмки по интерфейсу).
+
+    Роли упорядочены по возрастанию прав: каждая следующая включает предыдущую.
+    """
+
+    VIEWER = "viewer"
+    EDITOR = "editor"
+    ADMIN = "admin"
+
+
+#: Вес роли для сравнения «не ниже, чем».
+ROLE_ORDER = {Role.VIEWER: 0, Role.EDITOR: 1, Role.ADMIN: 2}
+
+
 class SyncStatus(str, enum.Enum):
     RUNNING = "running"
     SUCCESS = "success"
@@ -273,6 +288,24 @@ class SyncRun(Base):
     )
     facts_upserted: Mapped[int] = mapped_column(Integer, default=0)
     message: Mapped[str | None] = mapped_column(Text, default=None)
+
+
+class User(Base):
+    """Пользователь системы. Пароль хранится только как bcrypt-хеш."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(190), unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(128))
+    role: Mapped[Role] = mapped_column(Enum(Role, native_enum=False), default=Role.VIEWER)
+    password_hash: Mapped[str] = mapped_column(String(128))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    @property
+    def display_name(self) -> str:
+        return self.full_name or self.email
 
 
 class AppSettings(Base):

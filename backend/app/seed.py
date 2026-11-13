@@ -30,6 +30,7 @@ from .models import (
     ForecastAdjustment,
     Marketplace,
     Product,
+    Role,
     Seasonality,
     Store,
     StoreProduct,
@@ -37,6 +38,7 @@ from .models import (
     Supply,
     SupplyStatus,
     SyncRun,
+    User,
     WeekFact,
     WeekPlan,
 )
@@ -118,9 +120,35 @@ def reset(session: Session) -> None:
         Category,
         Supplier,
         Store,
+        User,
         AppSettings,
     ):
         session.execute(delete(model))
+    session.commit()
+
+
+#: Демонстрационные учётные записи. Существуют только для локального запуска:
+#: пароли лежат в репозитории, значит в реальной установке их обязательно меняют.
+#: Боевых пользователей заводит администратор через `POST /api/v1/auth/users`.
+DEMO_USERS = [
+    ("admin@raketa.local", "Ольга, администратор", Role.ADMIN, "demo-admin-2026"),
+    ("editor@raketa.local", "Анна, снабжение", Role.EDITOR, "demo-editor-2026"),
+    ("viewer@raketa.local", "Пётр, руководитель", Role.VIEWER, "demo-viewer-2026"),
+]
+
+
+def seed_users(session: Session) -> None:
+    from .security import hash_password
+
+    for email, full_name, role, password in DEMO_USERS:
+        session.add(
+            User(
+                email=email,
+                full_name=full_name,
+                role=role,
+                password_hash=hash_password(password),
+            )
+        )
     session.commit()
 
 
@@ -371,6 +399,7 @@ def main(
     with SessionLocal() as session:
         if not reset_db:
             reset(session)
+        seed_users(session)
         seed_catalog(session)
         make_fixtures(session, today, fixtures_dir)
         reports = sync_all(

@@ -21,6 +21,29 @@ class Settings(BaseSettings):
     wb_tokens: str = ""
     debug: bool = True
 
+    #: Ключ подписи сессионных токенов. В проде задаётся только через окружение.
+    secret_key: str = "dev-only-insecure-key-change-me"
+    session_ttl_hours: int = 12
+    #: Кука только по HTTPS. В разработке выключено, иначе вход не работает по http.
+    cookie_secure: bool = False
+
+    def validate_runtime(self) -> None:
+        """Проверки, после которых приложению можно давать работать.
+
+        Токен, подписанный общеизвестным ключом, подделывается кем угодно, поэтому
+        с ключом по умолчанию вне отладки стартовать нельзя.
+        """
+        if not self.debug and self.secret_key == Settings.model_fields["secret_key"].default:
+            raise RuntimeError(
+                "SECRET_KEY не задан. Сгенерируйте ключ "
+                '(`python -c "import secrets; print(secrets.token_urlsafe(48))"`) '
+                "и передайте его через окружение."
+            )
+        if not self.debug and not self.cookie_secure:
+            raise RuntimeError(
+                "COOKIE_SECURE=false вне отладки: сессионная кука уйдёт по открытому HTTP."
+            )
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

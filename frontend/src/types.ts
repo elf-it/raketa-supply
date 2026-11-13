@@ -1,3 +1,13 @@
+export type Role = 'viewer' | 'editor' | 'admin';
+
+export interface CurrentUser {
+  id: number;
+  email: string;
+  full_name: string;
+  role: Role;
+  is_active: boolean;
+}
+
 export type Level = 'store' | 'category' | 'sku';
 export type Status = 'OK' | 'SHORT' | 'OVER';
 

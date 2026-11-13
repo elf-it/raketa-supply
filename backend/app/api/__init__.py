@@ -1,13 +1,21 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-from . import catalog, forecast, matrix, purchase, reference, sync
+from . import auth, catalog, forecast, matrix, purchase, reference, sync
+from .deps import require_viewer
 
 api_router = APIRouter(prefix="/api/v1")
-api_router.include_router(matrix.router)
-api_router.include_router(catalog.router)
-api_router.include_router(reference.router)
-api_router.include_router(forecast.router)
-api_router.include_router(purchase.router)
-api_router.include_router(sync.router)
+
+# Вход открыт, остальное — только вошедшим. Права на изменение данных
+# проверяются уже в самих маршрутах.
+api_router.include_router(auth.router)
+
+protected = APIRouter(dependencies=[Depends(require_viewer)])
+protected.include_router(matrix.router)
+protected.include_router(catalog.router)
+protected.include_router(reference.router)
+protected.include_router(forecast.router)
+protected.include_router(purchase.router)
+protected.include_router(sync.router)
+api_router.include_router(protected)
 
 __all__ = ["api_router"]

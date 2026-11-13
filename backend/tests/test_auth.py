@@ -1,0 +1,268 @@
+"""Авторизация и роли (задача G-1)."""
+
+from __future__ import annotations
+
+import pytest
+from conftest import ADMIN, EDITOR, VIEWER
+
+from app.security import hash_password, verify_password
+
+#: Ручки, которые меняют данные и требуют роль не ниже редактора.
+WRITE_ENDPOINTS = [
+    (
+        "post",
+        "/api/v1/forecast/bulk",
+        {"pair_ids": [1], "weeks": ["2026-W50"], "operation": "clear"},
+    ),
+    ("put", "/api/v1/forecast/1/2026-W50", {"manual_forecast": 10}),
+    ("post", "/api/v1/forecast/close-week", {"week": "2026-W46"}),
+    ("put", "/api/v1/reference/base-potential/1", {"base_potential": 10}),
+    ("put", "/api/v1/reference/seasonality/1", {"coefficients": {"5": 1.0}}),
+    ("post", "/api/v1/sync/wb", None),
+]
+
+READ_ENDPOINTS = [
+    "/api/v1/matrix?level=sku",
+    "/api/v1/catalog/stores",
+    "/api/v1/purchase",
+    "/api/v1/forecast/log",
+    "/api/v1/reference/base-potential",
+]
+
+
+# ------------------------------------------------------------------------ пароли
+
+
+def test_password_hash_is_not_the_password():
+    stored = hash_password("правильный-пароль")
+    assert "правильный-пароль" not in stored
+    assert stored.startswith("$2b$")
+    assert verify_password("правильный-пароль", stored)
+    assert not verify_password("другой-пароль", stored)
+
+
+def test_long_passwords_are_not_truncated():
+    """bcrypt сам обрезает вход до 72 байт — из-за этого длинные пароли совпадали бы."""
+    base = "к" * 100
+    assert len(base.encode()) > 72
+    stored = hash_password(base)
+    assert verify_password(base, stored)
+    assert not verify_password(base + "хвост", stored)
+
+
+def test_broken_hash_does_not_crash_login():
+    assert verify_password("что угодно", "не-хеш-вовсе") is False
+    assert verify_password("что угодно", "") is False
+
+
+# -------------------------------------------------------------------------- вход
+
+
+def test_login_and_me(client):
+    me = client.get("/api/v1/auth/me").json()
+    assert me["email"] == EDITOR[0]
+    assert me["role"] == "editor"
+
+
+def test_login_rejects_wrong_password(anon_client):
+    response = anon_client.post(
+        "/api/v1/auth/login", json={"email": EDITOR[0], "password": "не тот пароль"}
+    )
+    assert response.status_code == 401
+
+
+def test_login_answer_does_not_reveal_who_exists(anon_client):
+    """Иначе форма входа превращается в способ узнать, кто заведён в системе."""
+    unknown = anon_client.post(
+        "/api/v1/auth/login", json={"email": "ghost@raketa.local", "password": "x" * 12}
+    )
+    wrong = anon_client.post("/api/v1/auth/login", json={"email": EDITOR[0], "password": "x" * 12})
+    assert unknown.status_code == wrong.status_code == 401
+    assert unknown.json() == wrong.json()
+
+
+def test_logout_clears_the_session(admin_client):
+    assert admin_client.get("/api/v1/auth/me").status_code == 200
+    admin_client.post("/api/v1/auth/logout")
+    assert admin_client.get("/api/v1/auth/me").status_code == 401
+    # Возвращаем сессию, чтобы не ломать другие тесты.
+    admin_client.post("/api/v1/auth/login", json={"email": ADMIN[0], "password": ADMIN[1]})
+    assert admin_client.get("/api/v1/auth/me").status_code == 200
+
+
+def test_session_cookie_is_http_only(anon_client):
+    """Из localStorage токен достаётся любым скриптом на странице, из httpOnly-куки — нет."""
+    response = anon_client.post(
+        "/api/v1/auth/login", json={"email": VIEWER[0], "password": VIEWER[1]}
+    )
+    assert response.status_code == 200
+    header = response.headers["set-cookie"].lower()
+    assert "httponly" in header
+    assert "samesite=lax" in header
+    anon_client.post("/api/v1/auth/logout")
+
+
+def test_garbage_token_is_rejected(anon_client):
+    anon_client.cookies.set("raketa_session", "eyJhbGciOiJIUzI1NiJ9.cG9ka.ZGVsa2E")
+    assert anon_client.get("/api/v1/auth/me").status_code == 401
+    anon_client.cookies.clear()
+
+
+# -------------------------------------------------------------------- права доступа
+
+
+@pytest.mark.parametrize("path", READ_ENDPOINTS)
+def test_reading_requires_login(anon_client, path):
+    assert anon_client.get(path).status_code == 401
+
+
+@pytest.mark.parametrize("method, path, payload", WRITE_ENDPOINTS)
+def test_writing_requires_login(anon_client, method, path, payload):
+    response = (
+        getattr(anon_client, method)(path, json=payload)
+        if payload
+        else getattr(anon_client, method)(path)
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize("path", READ_ENDPOINTS)
+def test_viewer_can_read(viewer_client, path):
+    assert viewer_client.get(path).status_code == 200
+
+
+@pytest.mark.parametrize("method, path, payload", WRITE_ENDPOINTS)
+def test_viewer_cannot_write(viewer_client, method, path, payload):
+    response = (
+        getattr(viewer_client, method)(path, json=payload)
+        if payload
+        else getattr(viewer_client, method)(path)
+    )
+    assert response.status_code == 403
+    assert "прав" in response.json()["detail"]
+
+
+def test_editor_cannot_manage_users(client):
+    assert client.get("/api/v1/auth/users").status_code == 403
+    response = client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "new@raketa.local",
+            "full_name": "Кто-то",
+            "role": "viewer",
+            "password": "достаточно-длинный",
+        },
+    )
+    assert response.status_code == 403
+
+
+def test_health_stays_open(anon_client):
+    assert anon_client.get("/api/v1/health").status_code == 200
+
+
+# ---------------------------------------------------------- управление пользователями
+
+
+def test_admin_creates_and_updates_users(admin_client):
+    created = admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "Novyi@Raketa.local",
+            "full_name": "Новый сотрудник",
+            "role": "viewer",
+            "password": "достаточно-длинный-пароль",
+        },
+    )
+    assert created.status_code == 201
+    user = created.json()
+    assert user["email"] == "novyi@raketa.local"  # почта нормализуется
+    assert user["role"] == "viewer"
+
+    duplicate = admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "novyi@raketa.local",
+            "full_name": "Он же",
+            "role": "viewer",
+            "password": "достаточно-длинный-пароль",
+        },
+    )
+    assert duplicate.status_code == 409
+
+    updated = admin_client.put(
+        f"/api/v1/auth/users/{user['id']}", json={"role": "editor", "is_active": False}
+    ).json()
+    assert updated["role"] == "editor"
+    assert updated["is_active"] is False
+
+
+def test_short_password_is_rejected(admin_client):
+    response = admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "weak@raketa.local",
+            "full_name": "Слабый пароль",
+            "role": "viewer",
+            "password": "1234",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_disabled_user_cannot_log_in(admin_client, anon_client):
+    created = admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "blocked@raketa.local",
+            "full_name": "Отключённый",
+            "role": "editor",
+            "password": "достаточно-длинный-пароль",
+        },
+    ).json()
+    admin_client.put(f"/api/v1/auth/users/{created['id']}", json={"is_active": False})
+
+    response = anon_client.post(
+        "/api/v1/auth/login",
+        json={"email": "blocked@raketa.local", "password": "достаточно-длинный-пароль"},
+    )
+    assert response.status_code == 401
+
+
+def test_last_admin_cannot_be_demoted(admin_client):
+    """Иначе системой некому управлять и это не откатить из интерфейса."""
+    users = admin_client.get("/api/v1/auth/users").json()
+    admins = [u for u in users if u["role"] == "admin" and u["is_active"]]
+    assert len(admins) == 1
+
+    response = admin_client.put(f"/api/v1/auth/users/{admins[0]['id']}", json={"role": "viewer"})
+    assert response.status_code == 409
+    assert "последний" in response.json()["detail"]
+
+
+def test_admin_cannot_disable_self(admin_client):
+    me = admin_client.get("/api/v1/auth/me").json()
+    response = admin_client.put(f"/api/v1/auth/users/{me['id']}", json={"is_active": False})
+    assert response.status_code == 409
+
+
+# ------------------------------------------------------------------------ журнал
+
+
+def test_journal_author_comes_from_the_session(client):
+    """Автор, который подставляет клиент, ничего не доказывает."""
+    payload = client.get("/api/v1/matrix?level=sku").json()
+    pair_id = payload["rows"][0]["meta"]["pair_id"]
+    week = next(w["key"] for w in payload["weeks"] if not w["is_closed"])
+
+    response = client.put(
+        f"/api/v1/forecast/{pair_id}/{week}",
+        json={"manual_forecast": 555, "author": "директор"},
+    )
+    assert response.status_code == 200
+
+    log = client.get(f"/api/v1/forecast/log?pair_id={pair_id}&limit=5").json()
+    latest = log["entries"][0]
+    assert latest["author"] == EDITOR[2]
+    assert latest["author"] != "директор"
+
+    client.put(f"/api/v1/forecast/{pair_id}/{week}", json={"clear": ["manual_forecast"]})

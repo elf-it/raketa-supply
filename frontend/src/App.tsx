@@ -1,14 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { api } from './api';
+import { api, setUnauthorizedHandler } from './api';
 import { BasePotentialPage } from './components/BasePotentialPage';
 import { BulkPanel } from './components/BulkPanel';
 import { JournalPage } from './components/JournalPage';
 import { KpiBar } from './components/KpiBar';
+import { LoginPage } from './components/LoginPage';
 import { PurchasePanel } from './components/PurchasePanel';
 import { SeasonalityPage } from './components/SeasonalityPage';
 import { GROUP_METRICS, WeekMatrix } from './components/WeekMatrix';
-import type { BulkRequest, Category, Level, Matrix, PurchasePlan, Store } from './types';
+import type {
+  BulkRequest,
+  Category,
+  CurrentUser,
+  Level,
+  Matrix,
+  PurchasePlan,
+  Role,
+  Store,
+} from './types';
+
+const ROLE_LABELS: Record<Role, string> = {
+  viewer: 'Просмотр',
+  editor: 'Редактирование',
+  admin: 'Администратор',
+};
 
 const LEVELS: { id: Level; label: string }[] = [
   { id: 'store', label: 'Магазины' },
@@ -30,6 +46,10 @@ const TABS: { id: Tab; label: string }[] = [
 const FILTERED_TABS: Tab[] = ['matrix', 'purchase', 'potential', 'journal'];
 
 export default function App() {
+  const [user, setUser] = useState<CurrentUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
+
   const [level, setLevel] = useState<Level>('sku');
   const [storeId, setStoreId] = useState<number | null>(null);
   const [categoryId, setCategoryId] = useState<number | null>(null);
@@ -60,18 +80,37 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [search]);
 
+  // Истёкшая сессия возвращает на экран входа из любого места приложения.
   useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      setSessionExpired(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    api
+      .me()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  const canEdit = user?.role === 'editor' || user?.role === 'admin';
+
+  useEffect(() => {
+    if (!user) return;
     Promise.all([api.stores(), api.categories()])
       .then(([s, c]) => {
         setStores(s);
         setCategories(c);
       })
       .catch((err: Error) => setError(err.message));
-  }, []);
+  }, [user]);
 
   const reload = useCallback(async () => {
     // Экраны потенциала и сезонности грузят себя сами.
-    if (tab !== 'matrix' && tab !== 'purchase') return;
+    if (!user || (tab !== 'matrix' && tab !== 'purchase')) return;
     setLoading(true);
     try {
       if (tab === 'matrix') {
@@ -85,7 +124,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [filters, tab]);
+  }, [filters, tab, user]);
 
   useEffect(() => {
     void reload();
@@ -164,6 +203,34 @@ export default function App() {
     [filters],
   );
 
+  const signOut = async () => {
+    try {
+      await api.logout();
+    } finally {
+      setUser(null);
+      setSessionExpired(false);
+      setMatrix(null);
+      setPurchase(null);
+    }
+  };
+
+  if (!authChecked) {
+    return <div className="boot">Загружаю…</div>;
+  }
+
+  if (!user) {
+    return (
+      <LoginPage
+        expired={sessionExpired}
+        onSignedIn={(signedIn) => {
+          setUser(signedIn);
+          setSessionExpired(false);
+          setError(null);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="app">
       <header className="app-head">
@@ -172,22 +239,31 @@ export default function App() {
           <p className="muted">План, факт, новый прогноз и сток в единой недельной матрице</p>
         </div>
         <div className="head-actions">
-          <button
-            className="ghost"
-            onClick={async () => {
-              setLoading(true);
-              try {
-                await api.syncWb();
-                await reload();
-              } catch (err) {
-                setError((err as Error).message);
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            Синхронизировать WB
+          <span className="who">
+            {user.full_name}
+            <span className={`badge role ${user.role}`}>{ROLE_LABELS[user.role]}</span>
+          </span>
+          <button className="link" onClick={() => void signOut()}>
+            Выйти
           </button>
+          {canEdit && (
+            <button
+              className="ghost"
+              onClick={async () => {
+                setLoading(true);
+                try {
+                  await api.syncWb();
+                  await reload();
+                } catch (err) {
+                  setError((err as Error).message);
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            >
+              Синхронизировать WB
+            </button>
+          )}
           <div className="tabs">
             {TABS.map((item) => (
               <button
@@ -268,7 +344,7 @@ export default function App() {
             </span>
           </div>
 
-          {matrix.level === 'sku' && (
+          {matrix.level === 'sku' && canEdit && (
             <BulkPanel
               weeks={matrix.weeks}
               pairIds={selectedPairs.size > 0 ? [...selectedPairs] : skuRowIds}
@@ -291,6 +367,7 @@ export default function App() {
             selectedPairs={selectedPairs}
             onToggleRow={toggleRow}
             onToggleAll={toggleAll}
+            canEdit={canEdit}
           />
 
           <p className="footnote">
@@ -303,10 +380,10 @@ export default function App() {
       {tab === 'purchase' && purchase && <PurchasePanel plan={purchase} />}
 
       {tab === 'potential' && (
-        <BasePotentialPage filters={pageFilters} onError={setError} />
+        <BasePotentialPage filters={pageFilters} onError={setError} canEdit={canEdit} />
       )}
 
-      {tab === 'seasonality' && <SeasonalityPage onError={setError} />}
+      {tab === 'seasonality' && <SeasonalityPage onError={setError} canEdit={canEdit} />}
 
       {tab === 'journal' && <JournalPage filters={pageFilters} onError={setError} />}
     </div>

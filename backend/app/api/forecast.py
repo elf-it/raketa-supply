@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..db import get_session
+from ..models import User
 from ..schemas import (
     AdjustmentIn,
     AdjustmentOut,
@@ -21,6 +22,7 @@ from ..services.journal import (
     list_batches,
     list_entries,
 )
+from .deps import require_editor
 
 router = APIRouter(prefix="/forecast", tags=["Прогноз"])
 
@@ -34,6 +36,7 @@ def put_adjustment(
     pair_id: int,
     week: str,
     payload: AdjustmentIn,
+    user: User = Depends(require_editor),
     session: Session = Depends(get_session),
 ) -> AdjustmentOut:
     """Правка переживает пересчёт — критерий приёмки № 2.
@@ -49,7 +52,7 @@ def put_adjustment(
             manual_forecast=payload.manual_forecast,
             manual_adapted=payload.manual_adapted,
             clear=tuple(payload.clear),
-            author=payload.author,
+            author=user.display_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -69,7 +72,9 @@ def put_adjustment(
     summary="Массовая правка прогноза",
 )
 def post_bulk_adjustment(
-    payload: BulkAdjustmentIn, session: Session = Depends(get_session)
+    payload: BulkAdjustmentIn,
+    user: User = Depends(require_editor),
+    session: Session = Depends(get_session),
 ) -> BulkAdjustmentOut:
     """Правка сразу по набору позиций и недель.
 
@@ -84,7 +89,7 @@ def post_bulk_adjustment(
             operation=payload.operation,
             value=payload.value,
             target_week=payload.target_week,
-            author=payload.author,
+            author=user.display_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -190,6 +195,10 @@ def get_log_batches(
 
 
 @router.post("/close-week", summary="Закрыть неделю и зафиксировать её план")
-def post_close_week(payload: CloseWeekIn, session: Session = Depends(get_session)) -> dict:
-    frozen = close_week(session, payload.week, payload.author)
+def post_close_week(
+    payload: CloseWeekIn,
+    user: User = Depends(require_editor),
+    session: Session = Depends(get_session),
+) -> dict:
+    frozen = close_week(session, payload.week, user.display_name)
     return {"week": payload.week, "frozen_rows": frozen}

@@ -1,0 +1,61 @@
+"""Зависимости доступа.
+
+Роли упорядочены: ``viewer`` → ``editor`` → ``admin``, каждая включает предыдущую.
+Чтение доступно всем вошедшим, изменение данных — с ``editor``, управление
+пользователями — только ``admin``.
+"""
+
+from __future__ import annotations
+
+from fastapi import Cookie, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from ..db import get_session
+from ..models import ROLE_ORDER, Role, User
+from ..security import SESSION_COOKIE, decode_token
+
+UNAUTHORIZED = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED, detail="Нужно войти в систему"
+)
+
+
+def current_user(
+    session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    session: Session = Depends(get_session),
+) -> User:
+    if not session_cookie:
+        raise UNAUTHORIZED
+    payload = decode_token(session_cookie)
+    if not payload:
+        raise UNAUTHORIZED
+
+    try:
+        user_id = int(payload.get("sub", ""))
+    except (TypeError, ValueError):
+        raise UNAUTHORIZED from None
+
+    user = session.get(User, user_id)
+    # Отключённый пользователь не должен доживать на уже выданном токене.
+    if user is None or not user.is_active:
+        raise UNAUTHORIZED
+    return user
+
+
+def require_role(minimum: Role):
+    """Зависимость «роль не ниже, чем»."""
+
+    def dependency(user: User = Depends(current_user)) -> User:
+        if ROLE_ORDER[user.role] < ROLE_ORDER[minimum]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Недостаточно прав: нужна роль {minimum.value} или выше",
+            )
+        return user
+
+    return dependency
+
+
+#: Готовые зависимости для маршрутов.
+require_viewer = require_role(Role.VIEWER)
+require_editor = require_role(Role.EDITOR)
+require_admin = require_role(Role.ADMIN)

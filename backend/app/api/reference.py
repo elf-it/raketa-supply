@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_session
-from ..models import Category, Seasonality, StoreProduct
+from ..models import Category, Seasonality, StoreProduct, User
 from ..schemas import (
     BasePotentialIn,
     BasePotentialOut,
@@ -16,6 +16,7 @@ from ..schemas import (
 )
 from ..services.matrix import MatrixFilters
 from ..services.reference import DEFAULT_FACT_WEEKS, base_potential_rows
+from .deps import require_editor
 
 router = APIRouter(prefix="/reference", tags=["Справочные показатели"])
 
@@ -63,7 +64,10 @@ def list_base_potential(
     summary="Изменить базовый потенциал",
 )
 def put_base_potential(
-    pair_id: int, payload: BasePotentialIn, session: Session = Depends(get_session)
+    pair_id: int,
+    payload: BasePotentialIn,
+    _: User = Depends(require_editor),
+    session: Session = Depends(get_session),
 ) -> BasePotentialOut:
     pair = session.get(StoreProduct, pair_id)
     if pair is None:
@@ -111,7 +115,10 @@ def list_seasonality(session: Session = Depends(get_session)) -> list[Seasonalit
     summary="Изменить коэффициенты сезонности",
 )
 def put_seasonality(
-    category_id: int, payload: SeasonalityIn, session: Session = Depends(get_session)
+    category_id: int,
+    payload: SeasonalityIn,
+    _: User = Depends(require_editor),
+    session: Session = Depends(get_session),
 ) -> SeasonalityOut:
     category = session.get(Category, category_id)
     if category is None:
