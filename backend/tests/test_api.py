@@ -135,6 +135,27 @@ def test_sync_is_idempotent(client):
     assert runs and runs[0]["status"] == "success"
 
 
+def test_base_potential_carries_fact_reference(client):
+    """Потенциал задаётся не вслепую: рядом факт закрытых недель и оценка по нему."""
+    rows = client.get("/api/v1/reference/base-potential?fact_weeks=8").json()
+    assert len(rows) == 18
+
+    with_facts = [r for r in rows if r["fact_weeks"] > 0]
+    assert with_facts, "ни по одной позиции нет факта — проверьте демо-данные"
+    for row in with_facts:
+        assert row["fact_weeks"] <= 8
+        assert row["avg_fact_units"] is not None
+        assert row["excluded_weeks"] <= row["fact_weeks"]
+
+    # Оценка строится обратным ходом из факта и сезонности, значит при коэффициенте
+    # выше единицы она ниже среднего факта, и наоборот.
+    estimated = [r for r in with_facts if r["suggested_potential"] is not None]
+    assert estimated
+
+    narrow = client.get("/api/v1/reference/base-potential?fact_weeks=2").json()
+    assert max(r["fact_weeks"] for r in narrow) <= 2
+
+
 def test_reference_pages(client):
     potentials = client.get("/api/v1/reference/base-potential").json()
     assert len(potentials) == 18
@@ -144,6 +165,8 @@ def test_reference_pages(client):
         f"/api/v1/reference/base-potential/{pair_id}", json={"base_potential": 321}
     ).json()
     assert updated["base_potential"] == 321
+    assert updated["pair_id"] == pair_id
+    assert updated["fact_weeks"] == potentials[0]["fact_weeks"]
 
     seasonality = client.get("/api/v1/reference/seasonality").json()
     assert len(seasonality) == 4

@@ -115,6 +115,26 @@ export interface PurchasePlan {
   overdue_count: number;
 }
 
+export interface BasePotentialRow {
+  pair_id: number;
+  store_name: string;
+  vendor_code: string;
+  title: string;
+  category: string | null;
+  base_potential: number;
+  fact_weeks: number;
+  avg_fact_units: number | null;
+  suggested_potential: number | null;
+  excluded_weeks: number;
+}
+
+export interface SeasonalityRow {
+  category_id: number;
+  category: string;
+  /** Ключ — номер ISO-недели, 1..53; в JSON приходит строкой. */
+  coefficients: Record<string, number>;
+}
+
 export interface MatrixFilters {
   level: Level;
   storeId: number | null;

@@ -504,3 +504,176 @@ table.purchase td.danger {
 table.purchase tr.overdue-row td {
   background: var(--danger-soft);
 }
+
+table.purchase tr.pending td {
+  opacity: 0.5;
+}
+
+.hint {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 2px 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button:disabled:hover {
+  border-color: var(--border-strong);
+}
+
+.inline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.inline-field select,
+.season-controls input {
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+}
+
+.inline-warning {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+
+/* Сезонность */
+
+.season-controls {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.range-apply {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.range-apply input {
+  width: 64px;
+  text-align: right;
+}
+
+.range-apply input.coef {
+  width: 72px;
+}
+
+.season-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
+}
+
+.season-cell {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 4px 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface);
+}
+
+.season-cell.current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.season-cell.changed {
+  border-color: var(--adapted);
+  background: var(--adapted-soft);
+}
+
+.season-cell.invalid {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.season-week {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.season-bar {
+  width: 100%;
+  height: 38px;
+  background: var(--closed);
+  border-radius: 4px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Отметка коэффициента 1.00 — половина шкалы. */
+.season-bar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 50%;
+  border-top: 1px dashed var(--border-strong);
+}
+
+.season-bar .fill {
+  width: 100%;
+  background: var(--border-strong);
+  transition: height 0.1s ease-out;
+}
+
+.season-bar .fill.high {
+  background: var(--accent);
+}
+
+.season-cell input {
+  font: inherit;
+  font-size: 12px;
+  width: 100%;
+  text-align: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 2px;
+  background: var(--surface);
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.season-cell input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}

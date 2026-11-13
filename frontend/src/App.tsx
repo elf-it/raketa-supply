@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api } from './api';
+import { BasePotentialPage } from './components/BasePotentialPage';
 import { KpiBar } from './components/KpiBar';
 import { PurchasePanel } from './components/PurchasePanel';
+import { SeasonalityPage } from './components/SeasonalityPage';
 import { GROUP_METRICS, WeekMatrix } from './components/WeekMatrix';
 import type { Category, Level, Matrix, PurchasePlan, Store } from './types';
 
@@ -12,6 +14,18 @@ const LEVELS: { id: Level; label: string }[] = [
   { id: 'sku', label: 'Артикулы' },
 ];
 
+type Tab = 'matrix' | 'purchase' | 'potential' | 'seasonality';
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'matrix', label: 'Матрица' },
+  { id: 'purchase', label: 'Закупка' },
+  { id: 'potential', label: 'Потенциал' },
+  { id: 'seasonality', label: 'Сезонность' },
+];
+
+/** На каких экранах имеет смысл общая панель фильтров. */
+const FILTERED_TABS: Tab[] = ['matrix', 'purchase', 'potential'];
+
 export default function App() {
   const [level, setLevel] = useState<Level>('sku');
   const [storeId, setStoreId] = useState<number | null>(null);
@@ -19,7 +33,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [groupMetric, setGroupMetric] = useState('original_forecast');
-  const [tab, setTab] = useState<'matrix' | 'purchase'>('matrix');
+  const [tab, setTab] = useState<Tab>('matrix');
 
   const [stores, setStores] = useState<Store[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -29,10 +43,12 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
 
-  const filters = useMemo(
-    () => ({ level, storeId, categoryId, search: debouncedSearch }),
-    [level, storeId, categoryId, debouncedSearch],
+  // Стабильные ссылки: иначе дочерние экраны перезапрашивают данные на каждый рендер.
+  const pageFilters = useMemo(
+    () => ({ storeId, categoryId, search: debouncedSearch }),
+    [storeId, categoryId, debouncedSearch],
   );
+  const filters = useMemo(() => ({ ...pageFilters, level }), [pageFilters, level]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -49,6 +65,8 @@ export default function App() {
   }, []);
 
   const reload = useCallback(async () => {
+    // Экраны потенциала и сезонности грузят себя сами.
+    if (tab !== 'matrix' && tab !== 'purchase') return;
     setLoading(true);
     try {
       if (tab === 'matrix') {
@@ -120,23 +138,20 @@ export default function App() {
             Синхронизировать WB
           </button>
           <div className="tabs">
-            <button
-              className={tab === 'matrix' ? 'active' : ''}
-              onClick={() => setTab('matrix')}
-            >
-              Матрица
-            </button>
-            <button
-              className={tab === 'purchase' ? 'active' : ''}
-              onClick={() => setTab('purchase')}
-            >
-              Закупка
-            </button>
+            {TABS.map((item) => (
+              <button
+                key={item.id}
+                className={tab === item.id ? 'active' : ''}
+                onClick={() => setTab(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
         </div>
       </header>
 
-      <div className="filters">
+      <div className="filters" hidden={!FILTERED_TABS.includes(tab)}>
         <input
           className="search"
           placeholder="Товар или артикул"
@@ -220,6 +235,12 @@ export default function App() {
       )}
 
       {tab === 'purchase' && purchase && <PurchasePanel plan={purchase} />}
+
+      {tab === 'potential' && (
+        <BasePotentialPage filters={pageFilters} onError={setError} />
+      )}
+
+      {tab === 'seasonality' && <SeasonalityPage onError={setError} />}
     </div>
   );
 }

@@ -165,6 +165,13 @@ class BasePotentialOut(BaseModel_):
     title: str
     category: str | None = None
     base_potential: float
+    #: Ориентир по факту закрытых недель — чтобы потенциал задавался не вслепую.
+    fact_weeks: int = 0
+    avg_fact_units: float | None = None
+    #: Оценка потенциала обратным ходом: факт, делённый на сезонность.
+    suggested_potential: float | None = None
+    #: Недели, выброшенные из оценки из-за нулевого остатка.
+    excluded_weeks: int = 0
 
 
 class SeasonalityIn(BaseModel_):

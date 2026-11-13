@@ -14,7 +14,8 @@ from ..schemas import (
     SeasonalityIn,
     SeasonalityOut,
 )
-from ..services.matrix import MatrixFilters, load_pairs
+from ..services.matrix import MatrixFilters
+from ..services.reference import DEFAULT_FACT_WEEKS, base_potential_rows
 
 router = APIRouter(prefix="/reference", tags=["Справочные показатели"])
 
@@ -28,22 +29,31 @@ def list_base_potential(
     store_id: int | None = Query(None),
     category_id: int | None = Query(None),
     search: str | None = Query(None),
+    fact_weeks: int = Query(
+        DEFAULT_FACT_WEEKS, ge=1, le=52, description="Сколько закрытых недель брать в ориентир"
+    ),
     session: Session = Depends(get_session),
 ) -> list[BasePotentialOut]:
-    pairs = load_pairs(
+    """Потенциал вместе с фактом закрытых недель и оценкой по нему."""
+    rows = base_potential_rows(
         session,
         MatrixFilters(store_id=store_id, category_id=category_id, search=search),
+        fact_weeks=fact_weeks,
     )
     return [
         BasePotentialOut(
-            pair_id=p.id,
-            store_name=p.store_name,
-            vendor_code=p.vendor_code,
-            title=p.title,
-            category=p.category_name,
-            base_potential=p.base_potential,
+            pair_id=row.pair.id,
+            store_name=row.pair.store_name,
+            vendor_code=row.pair.vendor_code,
+            title=row.pair.title,
+            category=row.pair.category_name,
+            base_potential=row.pair.base_potential,
+            fact_weeks=row.fact_weeks,
+            avg_fact_units=row.avg_fact_units,
+            suggested_potential=row.suggested_potential,
+            excluded_weeks=row.excluded_weeks,
         )
-        for p in pairs
+        for row in rows
     ]
 
 
@@ -60,13 +70,25 @@ def put_base_potential(
         raise HTTPException(status_code=404, detail="пара магазин/товар не найдена")
     pair.base_potential = payload.base_potential
     session.commit()
+
+    # Возвращаем строку целиком, вместе с ориентиром по факту.
+    rows = base_potential_rows(
+        session, MatrixFilters(store_id=pair.store_id, product_id=pair.product_id)
+    )
+    row = next((r for r in rows if r.pair.id == pair_id), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="пара магазин/товар неактивна")
     return BasePotentialOut(
-        pair_id=pair.id,
-        store_name=pair.store.name,
-        vendor_code=pair.product.vendor_code,
-        title=pair.product.title,
-        category=pair.product.category.name if pair.product.category else None,
-        base_potential=pair.base_potential,
+        pair_id=row.pair.id,
+        store_name=row.pair.store_name,
+        vendor_code=row.pair.vendor_code,
+        title=row.pair.title,
+        category=row.pair.category_name,
+        base_potential=row.pair.base_potential,
+        fact_weeks=row.fact_weeks,
+        avg_fact_units=row.avg_fact_units,
+        suggested_potential=row.suggested_potential,
+        excluded_weeks=row.excluded_weeks,
     )
 
 

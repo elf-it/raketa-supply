@@ -1,4 +1,12 @@
-import type { Category, Matrix, MatrixFilters, PurchasePlan, Store } from './types';
+import type {
+  BasePotentialRow,
+  Category,
+  Matrix,
+  MatrixFilters,
+  PurchasePlan,
+  SeasonalityRow,
+  Store,
+} from './types';
 
 const BASE = '/api/v1';
 
@@ -45,6 +53,25 @@ export const api = {
     request<unknown>(`/forecast/${pairId}/${week}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
+    }),
+
+  basePotential: (filters: Omit<MatrixFilters, 'level'>, factWeeks: number) =>
+    request<BasePotentialRow[]>(
+      `/reference/base-potential?fact_weeks=${factWeeks}&${query(filters)}`,
+    ),
+
+  setBasePotential: (pairId: number, value: number) =>
+    request<BasePotentialRow>(`/reference/base-potential/${pairId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ base_potential: value }),
+    }),
+
+  seasonality: () => request<SeasonalityRow[]>('/reference/seasonality'),
+
+  setSeasonality: (categoryId: number, coefficients: Record<number, number>) =>
+    request<SeasonalityRow>(`/reference/seasonality/${categoryId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ coefficients }),
     }),
 
   syncWb: () => request<unknown>('/sync/wb', { method: 'POST' }),
