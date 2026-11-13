@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { BasePotentialPage } from './components/BasePotentialPage';
 import { BulkPanel } from './components/BulkPanel';
+import { JournalPage } from './components/JournalPage';
 import { KpiBar } from './components/KpiBar';
 import { PurchasePanel } from './components/PurchasePanel';
 import { SeasonalityPage } from './components/SeasonalityPage';
@@ -15,17 +16,18 @@ const LEVELS: { id: Level; label: string }[] = [
   { id: 'sku', label: 'Артикулы' },
 ];
 
-type Tab = 'matrix' | 'purchase' | 'potential' | 'seasonality';
+type Tab = 'matrix' | 'purchase' | 'potential' | 'seasonality' | 'journal';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'matrix', label: 'Матрица' },
   { id: 'purchase', label: 'Закупка' },
   { id: 'potential', label: 'Потенциал' },
   { id: 'seasonality', label: 'Сезонность' },
+  { id: 'journal', label: 'Журнал' },
 ];
 
 /** На каких экранах имеет смысл общая панель фильтров. */
-const FILTERED_TABS: Tab[] = ['matrix', 'purchase', 'potential'];
+const FILTERED_TABS: Tab[] = ['matrix', 'purchase', 'potential', 'journal'];
 
 export default function App() {
   const [level, setLevel] = useState<Level>('sku');
@@ -305,6 +307,8 @@ export default function App() {
       )}
 
       {tab === 'seasonality' && <SeasonalityPage onError={setError} />}
+
+      {tab === 'journal' && <JournalPage filters={pageFilters} onError={setError} />}
     </div>
   );
 }

@@ -285,6 +285,40 @@ def seed_supplies(session: Session, today: date) -> None:
     session.commit()
 
 
+def seed_adjustments(session: Session, today: date) -> None:
+    """Немного истории правок, чтобы журнал корректировок не был пустым."""
+    from .calc import BulkOperation
+    from .services.adjustments import bulk_adjust, set_adjustment
+    from .services.matrix import MatrixFilters, load_pairs
+
+    pairs = load_pairs(session, MatrixFilters())
+    if not pairs:
+        return
+
+    current = week_key(today)
+    weeks = [shift_week(current, i) for i in range(1, 5)]
+
+    set_adjustment(
+        session,
+        pairs[0].id,
+        weeks[0],
+        manual_forecast=round(pairs[0].base_potential * 1.4),
+        author="Анна, снабжение",
+    )
+    set_adjustment(session, pairs[1].id, weeks[1], diff_percent=85, author="Анна, снабжение")
+
+    # Массовая правка: в журнале она должна читаться как одно действие.
+    bulk_adjust(
+        session,
+        pair_ids=[p.id for p in pairs[:5]],
+        weeks=weeks[:3],
+        operation=BulkOperation.SCALE,
+        value=115,
+        author="Пётр, руководитель",
+        today=today,
+    )
+
+
 def freeze_plans(session: Session, today: date) -> None:
     """План закрытых недель, чтобы KPI «выполнение плана» считался на истории."""
     from .services.matrix import (
@@ -342,6 +376,7 @@ def main(
         )
         seed_supplies(session, today)
         freeze_plans(session, today)
+        seed_adjustments(session, today)
 
     for report in reports:
         status = "ok" if report.ok else f"ошибка: {report.error}"

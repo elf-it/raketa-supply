@@ -3,6 +3,9 @@ import type {
   BulkRequest,
   BulkResult,
   Category,
+  JournalBatchPage,
+  JournalPage,
+  JournalQuery,
   Matrix,
   MatrixFilters,
   PurchasePlan,
@@ -30,6 +33,17 @@ function query(filters: Partial<MatrixFilters>): string {
   if (filters.storeId) params.set('store_id', String(filters.storeId));
   if (filters.categoryId) params.set('category_id', String(filters.categoryId));
   if (filters.search?.trim()) params.set('search', filters.search.trim());
+  return params.toString();
+}
+
+function journalQuery(query: JournalQuery, limit: number, offset: number): string {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (query.storeId) params.set('store_id', String(query.storeId));
+  if (query.categoryId) params.set('category_id', String(query.categoryId));
+  if (query.search?.trim()) params.set('search', query.search.trim());
+  if (query.field) params.set('field', query.field);
+  if (query.author?.trim()) params.set('author', query.author.trim());
+  if (query.batchId) params.set('batch_id', query.batchId);
   return params.toString();
 }
 
@@ -73,6 +87,12 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ base_potential: value }),
     }),
+
+  journalEntries: (query: JournalQuery, limit: number, offset: number) =>
+    request<JournalPage>(`/forecast/log?${journalQuery(query, limit, offset)}`),
+
+  journalBatches: (query: JournalQuery, limit: number, offset: number) =>
+    request<JournalBatchPage>(`/forecast/log/batches?${journalQuery(query, limit, offset)}`),
 
   seasonality: () => request<SeasonalityRow[]>('/reference/seasonality'),
 

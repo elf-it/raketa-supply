@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -43,6 +44,8 @@ def _apply_updates(
     row: ForecastAdjustment,
     updates: dict[str, float | None],
     author: str | None,
+    operation: str = "manual",
+    batch_id: str | None = None,
 ) -> int:
     """Пишет поля и заводит запись в журнале на каждое реальное изменение.
 
@@ -62,6 +65,8 @@ def _apply_updates(
                 store_product_id=row.store_product_id,
                 week=row.week,
                 field=name,
+                operation=operation,
+                batch_id=batch_id,
                 old_value=old_value,
                 new_value=new_value,
                 author=author,
@@ -123,6 +128,8 @@ class BulkResult:
     moved_units: float = 0.0
     weeks: list[str] = field(default_factory=list)
     target_week: str | None = None
+    #: Общий идентификатор записей журнала, порождённых этой правкой.
+    batch_id: str = ""
 
 
 def bulk_adjust(
@@ -207,11 +214,17 @@ def bulk_adjust(
         raise ValueError("ни одна из выбранных позиций не найдена")
     inputs = build_series_inputs(session, pairs, horizon, last_closed)
 
+    # Все записи журнала от этой правки получают общий идентификатор,
+    # чтобы в журнале она читалась как одно действие, а не как поток ячеек.
+    batch_id = uuid4().hex
+    stamp = operation.value
+
     result = BulkResult(
         operation=operation,
         skipped_closed=skipped_closed,
         weeks=open_weeks,
         target_week=target_week if operation is BulkOperation.MOVE else None,
+        batch_id=batch_id,
     )
     touched_pairs: set[int] = set()
 
@@ -227,7 +240,12 @@ def bulk_adjust(
             for week in open_weeks:
                 row = _ensure_row(session, pair.id, week)
                 changed = _apply_updates(
-                    session, row, {"manual_forecast": 0.0, "diff_percent": None}, author
+                    session,
+                    row,
+                    {"manual_forecast": 0.0, "diff_percent": None},
+                    author,
+                    stamp,
+                    batch_id,
                 )
                 if changed:
                     result.updated_cells += 1
@@ -235,7 +253,12 @@ def bulk_adjust(
             target_row = _ensure_row(session, pair.id, move_target)
             target_value = original_forecast(data, move_target) + moved
             if _apply_updates(
-                session, target_row, {"manual_forecast": round(target_value)}, author
+                session,
+                target_row,
+                {"manual_forecast": round(target_value)},
+                author,
+                stamp,
+                batch_id,
             ):
                 result.updated_cells += 1
                 touched_pairs.add(pair.id)
@@ -261,7 +284,7 @@ def bulk_adjust(
                     updates = {"diff_percent": round(current_diff * factor, 2)}
 
             row = _ensure_row(session, pair.id, week)
-            if _apply_updates(session, row, updates, author):
+            if _apply_updates(session, row, updates, author, stamp, batch_id):
                 result.updated_cells += 1
                 touched_pairs.add(pair.id)
 
@@ -315,10 +338,3 @@ def close_week(session: Session, week: str, author: str | None = None) -> int:
     app_settings.last_closed_week = max(week, app_settings.last_closed_week or week)
     session.commit()
     return frozen
-
-
-def adjustment_history(session: Session, pair_id: int | None = None, limit: int = 200):
-    stmt = select(AdjustmentLog).order_by(AdjustmentLog.created_at.desc()).limit(limit)
-    if pair_id is not None:
-        stmt = stmt.where(AdjustmentLog.store_product_id == pair_id)
-    return list(session.scalars(stmt).all())

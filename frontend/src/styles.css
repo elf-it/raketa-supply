@@ -584,6 +584,30 @@ button:disabled:hover {
   margin: 0 0 8px;
 }
 
+/* Журнал */
+
+.batch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--adapted);
+  background: var(--adapted-soft);
+  border: 1px solid var(--adapted);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.journal-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+table.purchase td.muted-cell {
+  color: var(--muted);
+}
+
 /* Массовые правки */
 
 .bulk {

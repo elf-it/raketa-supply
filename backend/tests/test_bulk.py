@@ -11,18 +11,31 @@ import pytest
 
 @pytest.fixture
 def scope(client):
-    """Две позиции и три плановые недели, с исходными значениями прогноза."""
+    """Две позиции и три плановые недели, очищенные от чужих правок.
+
+    Демо-данные содержат историю корректировок, поэтому выборка сбрасывается
+    к формуле до замера: иначе тесты зависели бы от содержимого сида.
+    """
     payload = client.get("/api/v1/matrix?level=sku").json()
     rows = payload["rows"][:2]
+    pair_ids = [row["meta"]["pair_id"] for row in rows]
     weeks = [w["key"] for w in payload["weeks"] if not w["is_closed"]][:3]
     closed = [w["key"] for w in payload["weeks"] if w["is_closed"]]
+
+    client.post(
+        "/api/v1/forecast/bulk",
+        json={"pair_ids": pair_ids, "weeks": weeks, "operation": "clear"},
+    )
+    clean = client.get("/api/v1/matrix?level=sku").json()["rows"]
+
     return {
-        "pair_ids": [row["meta"]["pair_id"] for row in rows],
+        "pair_ids": pair_ids,
         "weeks": weeks,
         "closed_week": closed[-1] if closed else None,
         "before": {
             row["meta"]["pair_id"]: {w: row["metrics"]["original_forecast"][w] for w in weeks}
-            for row in rows
+            for row in clean
+            if row["meta"]["pair_id"] in pair_ids
         },
     }
 
@@ -241,8 +254,8 @@ def test_bulk_edits_land_in_the_journal(client, scope):
             "author": "массовая правка",
         },
     )
-    log = client.get(f"/api/v1/forecast/log?pair_id={pair_id}").json()
-    entries = [e for e in log if e["author"] == "массовая правка"]
+    log = client.get(f"/api/v1/forecast/log?pair_id={pair_id}&limit=500").json()
+    entries = [e for e in log["entries"] if e["author"] == "массовая правка"]
     assert len(entries) >= len(scope["weeks"])
     assert {e["week"] for e in entries} >= set(scope["weeks"])
     assert all(e["new_value"] == 123 for e in entries)

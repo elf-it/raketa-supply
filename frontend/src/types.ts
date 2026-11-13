@@ -136,6 +136,58 @@ export interface BulkResult {
   target_week: string | null;
 }
 
+export interface JournalEntry {
+  id: number;
+  pair_id: number;
+  store_name: string;
+  vendor_code: string;
+  title: string;
+  category: string | null;
+  week: string;
+  field: string;
+  field_label: string;
+  operation: string;
+  batch_id: string | null;
+  old_value: number | null;
+  new_value: number | null;
+  author: string | null;
+  created_at: string;
+}
+
+export interface JournalPage {
+  total: number;
+  limit: number;
+  offset: number;
+  entries: JournalEntry[];
+}
+
+export interface JournalBatch {
+  batch_id: string;
+  operation: string;
+  author: string | null;
+  created_at: string;
+  cells: number;
+  pairs: number;
+  week_from: string;
+  week_to: string;
+}
+
+export interface JournalBatchPage {
+  total: number;
+  limit: number;
+  offset: number;
+  batches: JournalBatch[];
+}
+
+export interface JournalQuery {
+  storeId: number | null;
+  categoryId: number | null;
+  search: string;
+  field?: string;
+  author?: string;
+  batchId?: string;
+}
+
 export interface BasePotentialRow {
   pair_id: number;
   store_name: string;

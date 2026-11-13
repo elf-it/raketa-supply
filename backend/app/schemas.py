@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -126,17 +126,55 @@ class BulkAdjustmentOut(BaseModel_):
     moved_units: float
     weeks: list[str]
     target_week: str | None = None
+    #: По нему в журнале разворачиваются ячейки этой правки.
+    batch_id: str = ""
 
 
-class AdjustmentLogOut(BaseModel_):
+class JournalEntryOut(BaseModel_):
+    """Одно изменение одной ячейки."""
+
     id: int
     pair_id: int
+    store_name: str
+    vendor_code: str
+    title: str
+    category: str | None = None
     week: str
     field: str
+    field_label: str
+    operation: str
+    batch_id: str | None = None
     old_value: float | None = None
     new_value: float | None = None
     author: str | None = None
-    created_at: str
+    created_at: datetime
+
+
+class JournalPageOut(BaseModel_):
+    total: int
+    limit: int
+    offset: int
+    entries: list[JournalEntryOut]
+
+
+class JournalBatchOut(BaseModel_):
+    """Массовая правка, свёрнутая в одну строку."""
+
+    batch_id: str
+    operation: str
+    author: str | None = None
+    created_at: datetime
+    cells: int
+    pairs: int
+    week_from: str
+    week_to: str
+
+
+class JournalBatchPageOut(BaseModel_):
+    total: int
+    limit: int
+    offset: int
+    batches: list[JournalBatchOut]
 
 
 class PurchaseParamsOut(BaseModel_):

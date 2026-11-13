@@ -20,6 +20,21 @@ def test_catalog_is_seeded(client):
     assert len(products) == 12
 
 
+def test_search_is_case_insensitive_for_cyrillic(client):
+    """Встроенный lower() в SQLite не трогает кириллицу — поиск её не находил."""
+    exact = client.get("/api/v1/matrix?level=sku&search=Лампа").json()["rows"]
+    lowered = client.get("/api/v1/matrix?level=sku&search=лампа").json()["rows"]
+    upper = client.get("/api/v1/matrix?level=sku&search=ЛАМПА").json()["rows"]
+
+    assert len(exact) > 0
+    assert len(lowered) == len(exact)
+    assert len(upper) == len(exact)
+    assert all("ламп" in row["title"].lower() for row in lowered)
+
+    products = client.get("/api/v1/catalog/products?search=рация").json()
+    assert products and all("раци" in p["title"].lower() for p in products)
+
+
 def test_matrix_levels_return_expected_shape(client):
     for level, expected_rows in (("store", 3), ("category", 4)):
         payload = client.get(f"/api/v1/matrix?level={level}").json()
@@ -82,7 +97,10 @@ def test_manual_forecast_survives_recalculation(client):
     assert changed["metrics"]["is_manual"][week] is True
 
     log = client.get(f"/api/v1/forecast/log?pair_id={pair_id}").json()
-    assert any(entry["field"] == "manual_forecast" and entry["new_value"] == 777 for entry in log)
+    assert any(
+        entry["field"] == "manual_forecast" and entry["new_value"] == 777
+        for entry in log["entries"]
+    )
 
     # Сброс возвращает расчётное значение.
     client.put(f"/api/v1/forecast/{pair_id}/{week}", json={"clear": ["manual_forecast"]})

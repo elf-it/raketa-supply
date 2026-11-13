@@ -236,7 +236,12 @@ class ForecastAdjustment(Base):
 
 
 class AdjustmentLog(Base):
-    """Журнал корректировок — требование приёмки по интерфейсу."""
+    """Журнал корректировок — требование приёмки по интерфейсу.
+
+    Одна массовая правка порождает сотни записей, поэтому у них есть общий
+    ``batch_id``: без него журнал выглядел бы потоком несвязанных изменений,
+    в котором не видно, что именно сделал человек.
+    """
 
     __tablename__ = "adjustment_log"
 
@@ -244,6 +249,10 @@ class AdjustmentLog(Base):
     store_product_id: Mapped[int] = mapped_column(ForeignKey("store_products.id"), index=True)
     week: Mapped[str] = mapped_column(String(8), index=True)
     field: Mapped[str] = mapped_column(String(32))
+    #: Что породило запись: `manual` или имя массовой операции.
+    operation: Mapped[str] = mapped_column(String(16), default="manual", index=True)
+    #: Общий идентификатор массовой правки; у поячеечных правок пустой.
+    batch_id: Mapped[str | None] = mapped_column(String(32), index=True, default=None)
     old_value: Mapped[float | None] = mapped_column(Float, default=None)
     new_value: Mapped[float | None] = mapped_column(Float, default=None)
     author: Mapped[str | None] = mapped_column(String(64), default=None)

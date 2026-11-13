@@ -6,17 +6,20 @@ from sqlalchemy.orm import Session
 from ..db import get_session
 from ..schemas import (
     AdjustmentIn,
-    AdjustmentLogOut,
     AdjustmentOut,
     BulkAdjustmentIn,
     BulkAdjustmentOut,
     CloseWeekIn,
+    JournalBatchPageOut,
+    JournalPageOut,
 )
-from ..services.adjustments import (
-    adjustment_history,
-    bulk_adjust,
-    close_week,
-    set_adjustment,
+from ..services.adjustments import bulk_adjust, close_week, set_adjustment
+from ..services.journal import (
+    JournalFilters,
+    count_batches,
+    count_entries,
+    list_batches,
+    list_entries,
 )
 
 router = APIRouter(prefix="/forecast", tags=["Прогноз"])
@@ -88,25 +91,102 @@ def post_bulk_adjustment(
     return BulkAdjustmentOut.model_validate(result)
 
 
-@router.get("/log", response_model=list[AdjustmentLogOut], summary="Журнал корректировок")
+def _journal_filters(
+    store_id: int | None,
+    category_id: int | None,
+    pair_id: int | None,
+    search: str | None,
+    week_from: str | None,
+    week_to: str | None,
+    field: str | None,
+    author: str | None,
+    operation: str | None,
+    batch_id: str | None,
+) -> JournalFilters:
+    return JournalFilters(
+        store_id=store_id,
+        category_id=category_id,
+        pair_id=pair_id,
+        search=search,
+        week_from=week_from,
+        week_to=week_to,
+        field=field,
+        author=author,
+        operation=operation,
+        batch_id=batch_id,
+    )
+
+
+@router.get("/log", response_model=JournalPageOut, summary="Журнал корректировок по ячейкам")
 def get_log(
+    store_id: int | None = Query(None),
+    category_id: int | None = Query(None),
     pair_id: int | None = Query(None),
-    limit: int = Query(200, le=1000),
+    search: str | None = Query(None, description="Название или артикул"),
+    week_from: str | None = Query(None, description="Неделя не раньше, например 2026-W46"),
+    week_to: str | None = Query(None),
+    field: str | None = Query(None, description="manual_forecast, manual_adapted, diff_percent"),
+    author: str | None = Query(None),
+    operation: str | None = Query(None, description="manual или имя массовой операции"),
+    batch_id: str | None = Query(None, description="Записи одной массовой правки"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
-) -> list[AdjustmentLogOut]:
-    return [
-        AdjustmentLogOut(
-            id=row.id,
-            pair_id=row.store_product_id,
-            week=row.week,
-            field=row.field,
-            old_value=row.old_value,
-            new_value=row.new_value,
-            author=row.author,
-            created_at=row.created_at.isoformat(),
-        )
-        for row in adjustment_history(session, pair_id, limit)
-    ]
+) -> JournalPageOut:
+    """Отдельные изменения: что было, что стало, кто и когда."""
+    filters = _journal_filters(
+        store_id,
+        category_id,
+        pair_id,
+        search,
+        week_from,
+        week_to,
+        field,
+        author,
+        operation,
+        batch_id,
+    )
+    return JournalPageOut(
+        total=count_entries(session, filters),
+        limit=limit,
+        offset=offset,
+        entries=list_entries(session, filters, limit, offset),  # type: ignore[arg-type]
+    )
+
+
+@router.get(
+    "/log/batches",
+    response_model=JournalBatchPageOut,
+    summary="Журнал корректировок по операциям",
+)
+def get_log_batches(
+    store_id: int | None = Query(None),
+    category_id: int | None = Query(None),
+    pair_id: int | None = Query(None),
+    search: str | None = Query(None),
+    week_from: str | None = Query(None),
+    week_to: str | None = Query(None),
+    field: str | None = Query(None),
+    author: str | None = Query(None),
+    operation: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+) -> JournalBatchPageOut:
+    """Массовые правки, свёрнутые в одну строку на операцию.
+
+    Поячеечные правки сюда не попадают: у них нет общего идентификатора,
+    и сворачивать их не во что.
+    """
+    filters = _journal_filters(
+        store_id, category_id, pair_id, search, week_from, week_to, field, author, operation, None
+    )
+    return JournalBatchPageOut(
+        total=count_batches(session, filters),
+        limit=limit,
+        offset=offset,
+        batches=list_batches(session, filters, limit, offset),  # type: ignore[arg-type]
+    )
 
 
 @router.post("/close-week", summary="Закрыть неделю и зафиксировать её план")
