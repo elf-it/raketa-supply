@@ -161,7 +161,36 @@ def seed_users(session: Session) -> None:
     session.commit()
 
 
-def seed_catalog(session: Session) -> None:
+def expand_catalog(scale: int) -> tuple[list[tuple], list[tuple]]:
+    """Размножает каталог в ``scale`` раз — для проверки на больших объёмах.
+
+    Нужен ровно для того, чего на демо-каталоге из 18 позиций не увидеть:
+    виртуализации таблицы (F-10) и нагрузочной проверки (G-6). Копии отличаются
+    только артикулом и подписью, числа остаются прежними: цель — объём строк,
+    а не правдоподобие ассортимента.
+    """
+    if scale <= 1:
+        return list(PRODUCTS), list(ASSORTMENT)
+
+    products: list[tuple] = []
+    assortment: list[tuple] = []
+    for copy in range(scale):
+        suffix = "" if copy == 0 else f"-{copy:03d}"
+        label = "" if copy == 0 else f" · вариант {copy}"
+        for vendor_code, title, *rest in PRODUCTS:
+            products.append((vendor_code + suffix, title + label, *rest))
+        for store_code, vendor_code, potential in ASSORTMENT:
+            assortment.append((store_code, vendor_code + suffix, potential))
+    return products, assortment
+
+
+def seed_catalog(
+    session: Session,
+    products_data: list[tuple] | None = None,
+    assortment_data: list[tuple] | None = None,
+) -> None:
+    products_data = products_data if products_data is not None else list(PRODUCTS)
+    assortment_data = assortment_data if assortment_data is not None else list(ASSORTMENT)
     supplier_by_category: dict[str, Supplier] = {}
     for name, lead, moq, category_names in SUPPLIERS:
         supplier = Supplier(name=name, lead_time_days=lead, moq=moq)
@@ -184,7 +213,7 @@ def seed_catalog(session: Session) -> None:
     session.flush()
 
     products: dict[str, Product] = {}
-    for vendor_code, title, category, cost, price, volume, lead, moq, pcb in PRODUCTS:
+    for vendor_code, title, category, cost, price, volume, lead, moq, pcb in products_data:
         product = Product(
             vendor_code=vendor_code,
             title=title,
@@ -204,7 +233,7 @@ def seed_catalog(session: Session) -> None:
 
     session.flush()
 
-    for store_code, vendor_code, potential in ASSORTMENT:
+    for store_code, vendor_code, potential in assortment_data:
         product = products[vendor_code]
         session.add(
             StoreProduct(
@@ -398,9 +427,11 @@ def main(
     reset_db: bool = False,
     today: date | None = None,
     fixtures_dir: Path | None = None,
+    scale: int = 1,
 ) -> None:
     today = today or date.today()
     fixtures_dir = fixtures_dir or FIXTURES_DIR
+    products_data, assortment_data = expand_catalog(scale)
 
     # Схему разворачивают миграции, а не create_all: демо-данные должны ложиться
     # ровно на ту же схему, что получит прод.
@@ -413,7 +444,7 @@ def main(
         if not reset_db:
             reset(session)
         seed_users(session)
-        seed_catalog(session)
+        seed_catalog(session, products_data, assortment_data)
         make_fixtures(session, today, fixtures_dir)
         reports = sync_all(
             session,
@@ -434,5 +465,17 @@ def main(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Загрузка демонстрационных данных")
     parser.add_argument("--reset", action="store_true", help="пересоздать схему БД")
+    parser.add_argument(
+        "--scale",
+        type=int,
+        default=1,
+        help="размножить каталог в N раз — для проверки на тысячах SKU",
+    )
+    parser.add_argument(
+        "--fixtures-dir",
+        type=Path,
+        default=None,
+        help="куда складывать выгрузки WB; по умолчанию — фикстуры репозитория",
+    )
     args = parser.parse_args()
-    main(reset_db=args.reset)
+    main(reset_db=args.reset, scale=args.scale, fixtures_dir=args.fixtures_dir)

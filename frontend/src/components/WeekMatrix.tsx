@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Level, Row, Week } from '../types';
 import { EditableCell } from './EditableCell';
@@ -34,6 +34,25 @@ const GROUP_METRIC_OPTIONS: MetricDef[] = [
 ];
 
 export const GROUP_METRICS = GROUP_METRIC_OPTIONS;
+
+/**
+ * Виртуализация строк.
+ *
+ * На тысяче артикулов таблица — это сотни тысяч ячеек: браузер их создаёт,
+ * размечает и держит в памяти, и один щелчок по строке стоит секунд десять
+ * пересборки. Поэтому в DOM живут только блоки, попавшие в окно прокрутки,
+ * а место остальных занимают две распорки — пустые строки нужной высоты.
+ * Полоса прокрутки от этого не врёт: общая высота таблицы та же.
+ *
+ * Цена решения: поиск по странице (Ctrl+F) и печать видят только то, что
+ * сейчас в DOM. Поиск по артикулу и названию в системе свой, серверный,
+ * а печать идёт через выгрузку в XLSX — поэтому обмен признан равноценным.
+ */
+const OVERSCAN = 3;
+/** Ниже этого числа строк таблица рисуется целиком: виртуализация не бесплатна. */
+const VIRTUALIZE_FROM = 60;
+/** Сколько блоков отрисовать первым заходом, чтобы было что измерить. */
+const PROBE_BLOCKS = 8;
 
 const numberFormat = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 
@@ -102,8 +121,84 @@ export function WeekMatrix({
       ? SKU_METRICS
       : [GROUP_METRIC_OPTIONS.find((m) => m.id === groupMetric) ?? GROUP_METRIC_OPTIONS[0]];
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLTableSectionElement>(null);
+  const [blockH, setBlockH] = useState(0);
+  const [bodyTop, setBodyTop] = useState(0);
+  const [view, setView] = useState({ top: 0, height: 0, width: 0 });
+  const measuredFor = useRef('');
+
+  // Виртуализируется только уровень артикулов: там все блоки одного строения,
+  // значит и одной высоты — её можно измерить у отрисованных и распространить
+  // на остальные. На уровнях групп строк столько, сколько магазинов и категорий,
+  // а высота строки зависит от длины названия: мерить нечего и незачем.
+  const virtual = level === 'sku' && rows.length >= VIRTUALIZE_FROM;
+
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!virtual || !box) return;
+    // Состояние обновляется прямо в обработчике, без requestAnimationFrame:
+    // в скрытой вкладке кадры не рисуются, и окно так и осталось бы нулевым.
+    // Лишних перерисовок нет — при тех же числах React получает прежний объект.
+    const update = () => {
+      setView((prev) =>
+        prev.top === box.scrollTop &&
+        prev.height === box.clientHeight &&
+        prev.width === box.clientWidth
+          ? prev
+          : { top: box.scrollTop, height: box.clientHeight, width: box.clientWidth },
+      );
+    };
+    update();
+    box.addEventListener('scroll', update, { passive: true });
+    // Высота окна меняется и без прокрутки: разворот панели, поворот экрана.
+    const observer = new ResizeObserver(update);
+    observer.observe(box);
+    return () => {
+      box.removeEventListener('scroll', update);
+      observer.disconnect();
+    };
+  }, [virtual]);
+
+  const ready = virtual && blockH > 0 && view.height > 0;
+  const first = ready ? Math.max(0, Math.floor((view.top - bodyTop) / blockH) - OVERSCAN) : 0;
+  const last = ready
+    ? Math.min(rows.length, first + Math.ceil(view.height / blockH) + OVERSCAN * 2)
+    : virtual
+      ? Math.min(rows.length, PROBE_BLOCKS)
+      : rows.length;
+  const shown = virtual ? rows.slice(first, last) : rows;
+  const padTop = ready ? first * blockH : 0;
+  const padBottom = ready ? (rows.length - last) * blockH : 0;
+  const colSpan = weeks.length + (level === 'sku' ? 2 : 1);
+
+  // Что меняет высоту блока: уровень, число показателей и недель, ширина окна
+  // (от неё переносится название) и сама выборка строк. Прокрутка — не меняет.
+  const measureKey = `${level}|${metrics.length}|${weeks.length}|${rows.length}|${Math.round(view.width)}x${Math.round(view.height)}`;
+
+  // Замер после отрисовки: высота блока — средняя по показанным, чтобы одна
+  // строка с длинным названием не растянула оценку на всю тысячу. Мерится один
+  // раз на раскладку: пересчёт на каждой прокрутке менял бы высоту распорки
+  // на доли пикселя, а на тысячной строке это сотня пикселей прыжка.
+  useLayoutEffect(() => {
+    const box = scrollRef.current;
+    const body = bodyRef.current;
+    if (!virtual || !box || !body) return;
+    if (measuredFor.current === measureKey && blockH > 0) return;
+    const starts = body.querySelectorAll<HTMLTableRowElement>('tr[data-block]');
+    if (starts.length < 2) return;
+    measuredFor.current = measureKey;
+    const span =
+      starts[starts.length - 1].getBoundingClientRect().top -
+      starts[0].getBoundingClientRect().top;
+    const height = span / (starts.length - 1);
+    const top = body.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+    if (height > 0 && Math.abs(height - blockH) > 0.5) setBlockH(height);
+    if (Math.abs(top - bodyTop) > 0.5) setBodyTop(top);
+  }, [virtual, measureKey, blockH, bodyTop]);
+
   return (
-    <div className="matrix-scroll">
+    <div className="matrix-scroll" ref={scrollRef}>
       <table className="matrix">
         <thead>
           <tr>
@@ -153,8 +248,13 @@ export function WeekMatrix({
             ))}
           </tr>
         </thead>
-        <tbody>
-          {rows.map((row) => (
+        <tbody ref={bodyRef}>
+          {padTop > 0 && (
+            <tr className="spacer" aria-hidden="true">
+              <td colSpan={colSpan} style={{ height: padTop }} />
+            </tr>
+          )}
+          {shown.map((row) => (
             <RowBlock
               key={row.key}
               row={row}
@@ -173,9 +273,14 @@ export function WeekMatrix({
               onPick={() => onPickRow(row.key)}
             />
           ))}
+          {padBottom > 0 && (
+            <tr className="spacer" aria-hidden="true">
+              <td colSpan={colSpan} style={{ height: padBottom }} />
+            </tr>
+          )}
           {rows.length === 0 && (
             <tr>
-              <td className="empty" colSpan={weeks.length + (level === 'sku' ? 2 : 1)}>
+              <td className="empty" colSpan={colSpan}>
                 Под фильтры ничего не попало
               </td>
             </tr>
@@ -246,6 +351,8 @@ function RowBlock({
       {metrics.map((metric, index) => (
         <tr
           key={metric.id}
+          /* Метка первой строки блока: по ней виртуализация меряет высоту блока. */
+          data-block={index === 0 ? row.key : undefined}
           className={[
             index === metrics.length - 1 ? 'block-end' : '',
             selected ? 'selected' : '',

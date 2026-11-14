@@ -400,6 +400,14 @@ table.matrix td.closed {
   color: var(--muted);
 }
 
+/* Распорка виртуализации: место невидимых блоков. Ни рамок, ни отступов —
+   иначе она добавила бы к высоте таблицы лишние пиксели. */
+table.matrix tr.spacer td {
+  padding: 0;
+  border: none;
+  background: var(--surface);
+}
+
 table.matrix tr.block-end td,
 table.matrix tr.block-end th {
   border-bottom: 2px solid var(--border-strong);
