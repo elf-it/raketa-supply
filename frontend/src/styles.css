@@ -890,3 +890,226 @@ table.purchase td.muted-cell {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
+
+/* --- График выбранной строки (F-9, D-5) ------------------------------------- */
+
+.row-title.pick {
+  display: block;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  border-radius: 0;
+  border-bottom: 1px dashed var(--border-strong);
+}
+
+.row-title.pick:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+table.matrix tr.charted th.col-name {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+table.matrix tr.charted .row-title.pick {
+  color: var(--accent);
+  border-bottom-style: solid;
+  border-bottom-color: var(--accent);
+}
+
+.chart-panel {
+  padding-bottom: 12px;
+}
+
+.chart-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 14px;
+  min-height: 22px;
+  padding: 6px 0 2px;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-readout b {
+  color: var(--text);
+}
+
+.chart-readout .adapted-text b {
+  color: var(--adapted);
+}
+
+.chart-readout .danger-text,
+.chart-readout .danger-text b {
+  color: var(--danger);
+}
+
+.chart-scroll {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.chart {
+  display: block;
+}
+
+.chart .axis-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart .axis-base {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.chart .axis-label {
+  fill: var(--muted);
+  font-size: 10px;
+  text-anchor: end;
+}
+
+.chart .axis-title {
+  fill: var(--muted);
+  font-size: 10px;
+  text-anchor: start;
+}
+
+.chart .axis-week {
+  fill: var(--muted);
+  font-size: 10px;
+  text-anchor: middle;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart .chart-divider {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chart .bar-plan {
+  fill: #e9edeb;
+  stroke: var(--border-strong);
+  stroke-width: 0.6;
+}
+
+.chart .bar-fact {
+  fill: var(--accent);
+}
+
+.chart .bar-adapted {
+  fill: var(--adapted);
+}
+
+.chart .supply-mark {
+  fill: var(--warn);
+}
+
+.chart .stock-real {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.6;
+}
+
+.chart .stock-adapted {
+  fill: none;
+  stroke: var(--adapted);
+  stroke-width: 1.4;
+  stroke-dasharray: 4 3;
+}
+
+.chart .stock-deficit {
+  fill: var(--danger-soft);
+  stroke: none;
+}
+
+.chart .hover-band {
+  fill: transparent;
+}
+
+.chart .hover-band.active {
+  fill: rgba(31, 95, 63, 0.07);
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 12px;
+  color: var(--muted);
+  padding-top: 8px;
+}
+
+.swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.chart-legend .swatch:not(:first-child) {
+  margin-left: 10px;
+}
+
+.swatch.plan {
+  background: #e9edeb;
+  border: 1px solid var(--border-strong);
+}
+
+.swatch.fact {
+  background: var(--accent);
+}
+
+.swatch.adapted {
+  background: var(--adapted);
+}
+
+.swatch.short {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+}
+
+.swatch.supply {
+  background: var(--warn);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  border-radius: 0;
+}
+
+.swatch.real-line {
+  height: 0;
+  border-top: 2px solid var(--text);
+  border-radius: 0;
+  width: 14px;
+}
+
+.swatch.adapted-line {
+  height: 0;
+  border-top: 2px dashed var(--adapted);
+  border-radius: 0;
+  width: 14px;
+}
+
+.chart .axis-year {
+  fill: var(--muted);
+  font-size: 10px;
+  text-anchor: middle;
+  font-weight: 600;
+}
+
+.chart .year-divider {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.chart .axis-title.to-end {
+  text-anchor: end;
+}

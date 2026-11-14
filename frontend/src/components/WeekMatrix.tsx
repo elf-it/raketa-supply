@@ -65,6 +65,9 @@ interface Props {
   onToggleAll: () => void;
   /** Роль «просмотр» видит те же числа, но ничего не правит. */
   canEdit: boolean;
+  /** Строка, по которой показан график; выбирается щелчком по названию. */
+  chartRowKey: string | null;
+  onPickRow: (key: string) => void;
 }
 
 export function WeekMatrix({
@@ -79,6 +82,8 @@ export function WeekMatrix({
   onToggleRow,
   onToggleAll,
   canEdit,
+  chartRowKey,
+  onPickRow,
 }: Props) {
   const months = useMemo(() => monthSpans(weeks), [weeks]);
   const metrics =
@@ -152,6 +157,8 @@ export function WeekMatrix({
               }
               onToggleRow={onToggleRow}
               canEdit={canEdit}
+              charted={chartRowKey === row.key}
+              onPick={() => onPickRow(row.key)}
             />
           ))}
           {rows.length === 0 && (
@@ -163,8 +170,16 @@ export function WeekMatrix({
           )}
         </tbody>
         <tfoot>
-          <tr className="totals">
-            <th className="col-name">{totals.title}</th>
+          <tr className={`totals ${chartRowKey === totals.key ? 'charted' : ''}`}>
+            <th className="col-name">
+              <button
+                className="row-title pick"
+                onClick={() => onPickRow(totals.key)}
+                title="График по итогу выборки"
+              >
+                {totals.title}
+              </button>
+            </th>
             {level === 'sku' && <th className="col-metric">{metrics[0].label}</th>}
             {weeks.map((week) => (
               <td key={week.key} className={week.is_closed ? 'closed' : 'planned'}>
@@ -188,6 +203,8 @@ interface RowBlockProps {
   selected: boolean;
   onToggleRow: (pairId: number) => void;
   canEdit: boolean;
+  charted: boolean;
+  onPick: () => void;
 }
 
 function RowBlock({
@@ -200,6 +217,8 @@ function RowBlock({
   selected,
   onToggleRow,
   canEdit,
+  charted,
+  onPick,
 }: RowBlockProps) {
   const editable =
     canEdit && level === 'sku' && row.meta.editable && row.meta.pair_id !== undefined;
@@ -212,6 +231,7 @@ function RowBlock({
           className={[
             index === metrics.length - 1 ? 'block-end' : '',
             selected ? 'selected' : '',
+            charted ? 'charted' : '',
           ].join(' ')}
         >
           {index === 0 && (
@@ -224,7 +244,9 @@ function RowBlock({
                   onChange={() => onToggleRow(row.meta.pair_id as number)}
                 />
               )}
-              <div className="row-title">{row.title}</div>
+              <button className="row-title pick" onClick={onPick} title="Показать график">
+                {row.title}
+              </button>
               {row.subtitle && <div className="row-subtitle">{row.subtitle}</div>}
               <div className="row-badges">
                 {row.meta.abc_class && <span className="badge abc">{row.meta.abc_class}</span>}

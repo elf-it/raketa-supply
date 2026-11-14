@@ -7,6 +7,7 @@ import { JournalPage } from './components/JournalPage';
 import { KpiBar } from './components/KpiBar';
 import { LoginPage } from './components/LoginPage';
 import { PurchasePanel } from './components/PurchasePanel';
+import { RowChart } from './components/RowChart';
 import { SeasonalityPage } from './components/SeasonalityPage';
 import { GROUP_METRICS, WeekMatrix } from './components/WeekMatrix';
 import type {
@@ -67,6 +68,7 @@ export default function App() {
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
   const [selectedPairs, setSelectedPairs] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [chartRowKey, setChartRowKey] = useState<string | null>(null);
 
   // Стабильные ссылки: иначе дочерние экраны перезапрашивают данные на каждый рендер.
   const pageFilters = useMemo(
@@ -133,7 +135,16 @@ export default function App() {
   // Отметки относятся к конкретной выборке строк: при смене фильтров они бессмысленны.
   useEffect(() => {
     setSelectedPairs(new Set());
+    setChartRowKey(null);
   }, [pageFilters, level]);
+
+  // График живёт на строке текущей матрицы, а не на своей копии данных: после правки
+  // прогноза матрица перечитывается, и график перерисовывается тем же числам.
+  const chartRow = useMemo(() => {
+    if (!matrix || !chartRowKey) return null;
+    if (chartRowKey === matrix.totals.key) return matrix.totals;
+    return matrix.rows.find((row) => row.key === chartRowKey) ?? null;
+  }, [matrix, chartRowKey]);
 
   const skuRowIds = useMemo(
     () =>
@@ -356,6 +367,14 @@ export default function App() {
             />
           )}
 
+          {chartRow && (
+            <RowChart
+              row={chartRow}
+              weeks={matrix.weeks}
+              onClose={() => setChartRowKey(null)}
+            />
+          )}
+
           <WeekMatrix
             level={matrix.level}
             weeks={matrix.weeks}
@@ -368,9 +387,12 @@ export default function App() {
             onToggleRow={toggleRow}
             onToggleAll={toggleAll}
             canEdit={canEdit}
+            chartRowKey={chartRowKey}
+            onPickRow={(key) => setChartRowKey((prev) => (prev === key ? null : key))}
           />
 
           <p className="footnote">
+            Щелчок по названию строки или по итогу открывает график спроса и стока.
             Новый прогноз редактируется в таблице, после закрытия недели он фиксируется как её план.
             Исходный спрос не обнуляется из-за дефицита: обрезается только адаптированный прогноз.
           </p>
