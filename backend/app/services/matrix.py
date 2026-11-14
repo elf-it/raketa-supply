@@ -340,7 +340,16 @@ def build_matrix(
     level: Level,
     filters: MatrixFilters,
     today: date | None = None,
+    status: Status | None = None,
 ) -> Matrix:
+    """Матрица по уровню просмотра.
+
+    ``status`` отбирает строки по статусу OVER/SHORT/OK. Он не лежит в
+    :class:`MatrixFilters` намеренно: те фильтры сужают выборку пар в запросе к базе,
+    а статус — результат расчёта, и отобрать по нему можно только после того, как
+    расчёт прошёл. Хранить их рядом значило бы обещать, что ``load_pairs`` умеет
+    фильтровать по статусу.
+    """
     today = today or date.today()
     app_settings = load_app_settings(session)
     settings = calc_settings(app_settings)
@@ -357,6 +366,7 @@ def build_matrix(
     }
 
     if level is Level.SKU:
+        shown = [pair for pair in pairs if status is None or results[pair.id].status is status]
         rows = [
             Row(
                 key=f"pair-{pair.id}",
@@ -377,7 +387,7 @@ def build_matrix(
                 },
                 metrics=_row_metrics(results[pair.id], weeks),
             )
-            for pair in pairs
+            for pair in shown
         ]
     else:
         groups: dict[tuple, list[Pair]] = defaultdict(list)
@@ -387,8 +397,15 @@ def build_matrix(
             else:
                 groups[(pair.category_id, pair.category_name or "Без категории")].append(pair)
         rows = []
+        shown = []
         for (key, title), group in sorted(groups.items(), key=lambda kv: str(kv[0][1])):
             agg = aggregate([results[p.id] for p in group], weeks)
+            # Статус группы — худший из статусов её позиций, и отбирается группа целиком:
+            # магазин с дефицитом остаётся магазином с дефицитом, а не превращается
+            # в список своих дефицитных артикулов.
+            if status is not None and agg.status is not status:
+                continue
+            shown.extend(group)
             rows.append(
                 Row(
                     key=f"{level.value}-{key}",
@@ -404,12 +421,15 @@ def build_matrix(
                 )
             )
 
-    total = aggregate(list(results.values()), weeks)
+    # Итоги и KPI считаются по показанным строкам: отбор по статусу — такая же выборка,
+    # как магазин или категория, и итог под таблицей должен сходиться с тем, что над ним.
+    shown_results = {pair.id: results[pair.id] for pair in shown}
+    total = aggregate(list(shown_results.values()), weeks)
     totals = Row(
         key="total",
         title=_totals_title(level, filters),
         status=total.status,
-        meta={"sku_count": len(pairs), "editable": False},
+        meta={"sku_count": len(shown), "editable": False},
         metrics=_row_metrics(total, weeks),
     )
 
@@ -418,17 +438,21 @@ def build_matrix(
         weeks=axis,
         rows=rows,
         totals=totals,
-        kpi=build_kpi(results, weeks, last_closed, app_settings),
+        kpi=build_kpi(shown_results, weeks, last_closed, app_settings),
         context={
             "last_closed_week": last_closed,
             "horizon_weeks": app_settings.horizon_weeks,
             "history_weeks": app_settings.history_weeks,
-            "sku_count": len(pairs),
+            "sku_count": len(shown),
+            #: Сколько позиций попало под остальные фильтры: по разнице видно,
+            #: что именно скрыл отбор по статусу.
+            "sku_count_total": len(pairs),
             "filters": {
                 "store_id": filters.store_id,
                 "category_id": filters.category_id,
                 "product_id": filters.product_id,
                 "search": filters.search,
+                "status": status.value if status else None,
             },
         },
     )

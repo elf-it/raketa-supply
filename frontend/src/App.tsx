@@ -20,8 +20,16 @@ import type {
   PurchasePlan,
   PurchaseRow,
   Role,
+  Status,
   Store,
 } from './types';
+
+/** Отбор строк по статусу. Слова те же, что на значке строки, чтобы не плодить словарь. */
+const STATUS_OPTIONS: { id: Status; label: string }[] = [
+  { id: 'SHORT', label: 'Shortage — дефицит' },
+  { id: 'OVER', label: 'Overstock — избыток' },
+  { id: 'OK', label: 'ОК — норма' },
+];
 
 const ROLE_LABELS: Record<Role, string> = {
   viewer: 'Просмотр',
@@ -60,6 +68,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [groupMetric, setGroupMetric] = useState('original_forecast');
+  const [rowStatus, setRowStatus] = useState<Status | null>(null);
   const [tab, setTab] = useState<Tab>('matrix');
 
   const [stores, setStores] = useState<Store[]>([]);
@@ -80,7 +89,12 @@ export default function App() {
     () => ({ storeId, categoryId, search: debouncedSearch }),
     [storeId, categoryId, debouncedSearch],
   );
-  const filters = useMemo(() => ({ ...pageFilters, level }), [pageFilters, level]);
+  // Статус — результат расчёта, поэтому он живёт только в фильтрах матрицы:
+  // экраны потенциала, журнала и закупки о нём ничего не знают.
+  const filters = useMemo(
+    () => ({ ...pageFilters, level, rowStatus }),
+    [pageFilters, level, rowStatus],
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -141,7 +155,7 @@ export default function App() {
   useEffect(() => {
     setSelectedPairs(new Set());
     setChartRowKey(null);
-  }, [pageFilters, level]);
+  }, [pageFilters, level, rowStatus]);
 
   // График живёт на строке текущей матрицы, а не на своей копии данных: после правки
   // прогноза матрица перечитывается, и график перерисовывается тем же числам.
@@ -345,6 +359,20 @@ export default function App() {
             </option>
           ))}
         </select>
+        {tab === 'matrix' && (
+          <select
+            value={rowStatus ?? ''}
+            onChange={(event) => setRowStatus((event.target.value || null) as Status | null)}
+            title="Отбор строк по статусу"
+          >
+            <option value="">Все статусы</option>
+            {STATUS_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        )}
         {tab === 'matrix' && level !== 'sku' && (
           <select value={groupMetric} onChange={(event) => setGroupMetric(event.target.value)}>
             {GROUP_METRICS.map((metric) => (
@@ -375,7 +403,12 @@ export default function App() {
               </button>
             ))}
             <span className="muted level-hint">
-              {matrix.context.sku_count} SKU · закрыта {matrix.context.last_closed_week} · горизонт{' '}
+              {/* При отборе по статусу видно, сколько строк он скрыл: иначе короткая
+                  таблица выглядит как потерянные данные. */}
+              {rowStatus
+                ? `${matrix.context.sku_count} из ${matrix.context.sku_count_total} SKU`
+                : `${matrix.context.sku_count} SKU`}{' '}
+              · закрыта {matrix.context.last_closed_week} · горизонт{' '}
               {matrix.context.horizon_weeks} нед.
             </span>
             {/* Ссылка, а не fetch: файл сохраняет браузер под именем от сервера. */}

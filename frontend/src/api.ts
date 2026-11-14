@@ -69,6 +69,7 @@ function query(filters: Partial<MatrixFilters>): string {
   if (filters.storeId) params.set('store_id', String(filters.storeId));
   if (filters.categoryId) params.set('category_id', String(filters.categoryId));
   if (filters.search?.trim()) params.set('search', filters.search.trim());
+  if (filters.rowStatus) params.set('status', filters.rowStatus);
   return params.toString();
 }
 

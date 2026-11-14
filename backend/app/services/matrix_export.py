@@ -171,6 +171,7 @@ def build_matrix_workbook(
     first_week_column = len(left) + 1
 
     title_row(sheet, f"Недельная матрица {LEVEL_LABELS[matrix.level]}")
+    picked = matrix.context["filters"].get("status")
     months_row = (
         meta_block(
             sheet,
@@ -180,6 +181,15 @@ def build_matrix_workbook(
                 ("Магазин", store_name or "все магазины"),
                 ("Категория", category_name or "все ниши и категории"),
                 ("Поиск", matrix.context["filters"].get("search")),
+                # Без этой строки по файлу из трёх строк не понять, потерялись ли
+                # остальные позиции или их скрыл отбор.
+                (
+                    "Отбор по статусу",
+                    f"{STATUS_LABELS[Status(picked)]}"
+                    f" · {matrix.context['sku_count']} из {matrix.context['sku_count_total']}"
+                    if picked
+                    else None,
+                ),
                 ("Последняя закрытая неделя", matrix.context["last_closed_week"]),
                 ("Горизонт планирования", f"{matrix.context['horizon_weeks']} нед."),
                 ("Позиций в выборке", matrix.context["sku_count"]),

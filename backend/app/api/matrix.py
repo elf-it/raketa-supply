@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
-from ..calc import Level
+from ..calc import Level, Status
 from ..db import get_session
 from ..schemas import MatrixOut
 from ..services.matrix import MatrixFilters, build_matrix
@@ -20,6 +20,7 @@ def get_matrix(
     category_id: int | None = Query(None, description="Фильтр по категории"),
     product_id: int | None = Query(None, description="Фильтр по товару"),
     search: str | None = Query(None, description="Поиск по названию, артикулу или nmId"),
+    row_status: Status | None = Query(None, alias="status", description="Отбор строк по статусу"),
     session: Session = Depends(get_session),
 ) -> MatrixOut:
     """Один экран, три уровня агрегации, без дерева строк (ТЗ, стр. 3)."""
@@ -32,6 +33,7 @@ def get_matrix(
             product_id=product_id,
             search=search,
         ),
+        status=row_status,
     )
     return MatrixOut(
         level=matrix.level,
@@ -50,6 +52,7 @@ def export_matrix(
     category_id: int | None = Query(None),
     product_id: int | None = Query(None),
     search: str | None = Query(None),
+    row_status: Status | None = Query(None, alias="status"),
     session: Session = Depends(get_session),
 ) -> Response:
     """Те же строки и недели, что на экране: файл собирается тем же сервисом."""
@@ -62,6 +65,7 @@ def export_matrix(
             product_id=product_id,
             search=search,
         ),
+        status=row_status,
     )
     store_name, category_name = filter_names(session, store_id, category_id)
     return xlsx_response(

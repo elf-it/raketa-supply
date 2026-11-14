@@ -68,7 +68,9 @@ export interface Matrix {
     last_closed_week: string;
     horizon_weeks: number;
     history_weeks: number;
+    /** Позиций в показанной выборке; при отборе по статусу — меньше следующего. */
     sku_count: number;
+    sku_count_total: number;
   };
 }
 
@@ -268,4 +270,6 @@ export interface MatrixFilters {
   storeId: number | null;
   categoryId: number | null;
   search: string;
+  /** Отбор строк по статусу; считается после расчёта, поэтому только для матрицы. */
+  rowStatus?: Status | null;
 }
