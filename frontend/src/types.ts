@@ -1,12 +1,17 @@
 export type Role = 'viewer' | 'editor' | 'admin';
 
-export interface CurrentUser {
+export interface User {
   id: number;
   email: string;
   full_name: string;
   role: Role;
   is_active: boolean;
+  /** Когда завели учётную запись; в JSON — строка с зоной. */
+  created_at: string;
 }
+
+/** Тот, кто вошёл: та же запись, что и в списке пользователей. */
+export type CurrentUser = User;
 
 export type Level = 'store' | 'category' | 'sku';
 export type Status = 'OK' | 'SHORT' | 'OVER';

@@ -10,6 +10,7 @@ import { OrdersPage } from './components/OrdersPage';
 import { PurchasePanel } from './components/PurchasePanel';
 import { MAX_CHART_ROWS, RowChart } from './components/RowChart';
 import { SeasonalityPage } from './components/SeasonalityPage';
+import { UsersPage } from './components/UsersPage';
 import { GROUP_METRICS, WeekMatrix } from './components/WeekMatrix';
 import type {
   BulkRequest,
@@ -44,15 +45,16 @@ const LEVELS: { id: Level; label: string }[] = [
   { id: 'sku', label: 'Артикулы' },
 ];
 
-type Tab = 'matrix' | 'purchase' | 'orders' | 'potential' | 'seasonality' | 'journal';
+type Tab = 'matrix' | 'purchase' | 'orders' | 'potential' | 'seasonality' | 'journal' | 'users';
 
-const TABS: { id: Tab; label: string }[] = [
+const TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
   { id: 'matrix', label: 'Матрица' },
   { id: 'purchase', label: 'Закупка' },
   { id: 'orders', label: 'Заказы' },
   { id: 'potential', label: 'Потенциал' },
   { id: 'seasonality', label: 'Сезонность' },
   { id: 'journal', label: 'Журнал' },
+  { id: 'users', label: 'Пользователи', adminOnly: true },
 ];
 
 /** На каких экранах имеет смысл общая панель фильтров. */
@@ -416,7 +418,9 @@ export default function App() {
             </button>
           )}
           <div className="tabs">
-            {TABS.map((item) => (
+            {/* Вкладка пользователей — для администратора. Это удобство, а не защита:
+                ручки /auth/users закрыты ролью на сервере. */}
+            {TABS.filter((item) => !item.adminOnly || user.role === 'admin').map((item) => (
               <button
                 key={item.id}
                 className={tab === item.id ? 'active' : ''}
@@ -608,6 +612,19 @@ export default function App() {
       {tab === 'seasonality' && <SeasonalityPage onError={setError} canEdit={canEdit} />}
 
       {tab === 'journal' && <JournalPage filters={pageFilters} onError={setError} />}
+
+      {tab === 'users' && user.role === 'admin' && (
+        <UsersPage
+          me={user}
+          onMeUpdated={(updated) => {
+            setUser(updated);
+            // Администратор мог снять права с самого себя: вкладка пропадает,
+            // и оставлять его на пустом экране незачем.
+            if (updated.role !== 'admin') setTab('matrix');
+          }}
+          onError={setError}
+        />
+      )}
     </div>
   );
 }

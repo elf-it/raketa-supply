@@ -13,8 +13,10 @@ import type {
   OrderDraft,
   OrderStatus,
   PurchasePlan,
+  Role,
   SeasonalityRow,
   Store,
+  User,
 } from './types';
 
 const BASE = '/api/v1';
@@ -94,6 +96,18 @@ export const api = {
     }),
 
   logout: () => request<unknown>('/auth/logout', { method: 'POST' }),
+
+  // Управление пользователями. Ручки закрыты ролью на сервере: вкладка, спрятанная
+  // от не-администратора, — удобство, а не защита.
+  users: () => request<User[]>('/auth/users'),
+
+  createUser: (payload: { email: string; full_name: string; role: Role; password: string }) =>
+    request<User>('/auth/users', { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateUser: (
+    userId: number,
+    payload: { full_name?: string; role?: Role; is_active?: boolean; password?: string },
+  ) => request<User>(`/auth/users/${userId}`, { method: 'PUT', body: JSON.stringify(payload) }),
 
   stores: () => request<Store[]>('/catalog/stores'),
   categories: () => request<Category[]>('/catalog/categories'),

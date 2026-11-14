@@ -245,6 +245,117 @@ def test_admin_cannot_disable_self(admin_client):
     assert response.status_code == 409
 
 
+def test_admin_can_be_demoted_while_another_remains(admin_client):
+    """Снять права администратора можно — до той границы, где он остаётся один.
+
+    Понижение себя сервер тоже разрешает: пока администраторов двое, это
+    не запирание, а решение человека, и роль вернёт коллега. Экран перед таким
+    понижением переспрашивает.
+    """
+    second = admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "second-admin@raketa.local",
+            "full_name": "Второй администратор",
+            "role": "admin",
+            "password": "достаточно-длинный-пароль",
+        },
+    ).json()
+
+    stepped_down = admin_client.put(f"/api/v1/auth/users/{second['id']}", json={"role": "editor"})
+    assert stepped_down.status_code == 200
+    assert stepped_down.json()["role"] == "editor"
+
+
+def test_admin_renames_a_user(admin_client):
+    """Имя автора правки берётся из учётной записи, поэтому его правят здесь."""
+    created = admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "renamed@raketa.local",
+            "full_name": "Было",
+            "role": "viewer",
+            "password": "достаточно-длинный-пароль",
+        },
+    ).json()
+
+    updated = admin_client.put(
+        f"/api/v1/auth/users/{created['id']}", json={"full_name": "  Стало, снабжение  "}
+    ).json()
+    assert updated["full_name"] == "Стало, снабжение"
+
+    listed = admin_client.get("/api/v1/auth/users").json()
+    assert any(row["full_name"] == "Стало, снабжение" for row in listed)
+
+
+def test_users_say_when_they_were_created(admin_client):
+    """Экран показывает дату заведения: по ней видно, кто появился недавно."""
+    me = admin_client.get("/api/v1/auth/me").json()
+    assert me["created_at"]
+    assert all(row["created_at"] for row in admin_client.get("/api/v1/auth/users").json())
+
+
+def test_new_password_replaces_the_old_one(admin_client, anon_client):
+    """Пароль не восстанавливают, а задают заново: это и есть «забыл пароль»."""
+    created = admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "forgetful@raketa.local",
+            "full_name": "Забыл пароль",
+            "role": "editor",
+            "password": "первый-длинный-пароль",
+        },
+    ).json()
+
+    admin_client.put(
+        f"/api/v1/auth/users/{created['id']}", json={"password": "второй-длинный-пароль"}
+    )
+
+    old = anon_client.post(
+        "/api/v1/auth/login",
+        json={"email": "forgetful@raketa.local", "password": "первый-длинный-пароль"},
+    )
+    assert old.status_code == 401
+
+    new = anon_client.post(
+        "/api/v1/auth/login",
+        json={"email": "forgetful@raketa.local", "password": "второй-длинный-пароль"},
+    )
+    assert new.status_code == 200
+    anon_client.post("/api/v1/auth/logout")
+    anon_client.cookies.clear()
+
+
+def test_disabling_cuts_the_session_already_issued(admin_client):
+    """Отключение действует сразу, а не когда истечёт выданная кука."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    created = admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "fired@raketa.local",
+            "full_name": "Уволенный",
+            "role": "editor",
+            "password": "достаточно-длинный-пароль",
+        },
+    ).json()
+
+    with TestClient(app) as theirs:
+        login = theirs.post(
+            "/api/v1/auth/login",
+            json={"email": "fired@raketa.local", "password": "достаточно-длинный-пароль"},
+        )
+        assert login.status_code == 200
+        assert theirs.get("/api/v1/matrix?level=sku").status_code == 200
+
+        admin_client.put(f"/api/v1/auth/users/{created['id']}", json={"is_active": False})
+
+        assert theirs.get("/api/v1/auth/me").status_code == 401
+        assert theirs.get("/api/v1/matrix?level=sku").status_code == 401
+
+
 # ------------------------------------------------------------------------ журнал
 
 

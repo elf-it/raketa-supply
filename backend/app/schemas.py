@@ -42,6 +42,9 @@ class UserOut(BaseModel_):
     full_name: str
     role: Role
     is_active: bool
+    #: Когда завели учётную запись. На экране пользователей по этой отметке видно,
+    #: кто появился недавно, а кто остался с прошлого состава.
+    created_at: UtcDatetime
 
 
 class UserCreateIn(BaseModel_):
