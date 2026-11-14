@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from . import auth, catalog, forecast, matrix, purchase, reference, sync
+from . import auth, catalog, forecast, matrix, orders, purchase, reference, sync
 from .deps import require_viewer
 
 api_router = APIRouter(prefix="/api/v1")
@@ -15,6 +15,7 @@ protected.include_router(catalog.router)
 protected.include_router(reference.router)
 protected.include_router(forecast.router)
 protected.include_router(purchase.router)
+protected.include_router(orders.router)
 protected.include_router(sync.router)
 api_router.include_router(protected)
 

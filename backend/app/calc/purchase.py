@@ -87,20 +87,40 @@ def suggest_purchase(
             reason="остатка хватает на весь горизонт с учётом страхового запаса",
         )
 
-    idx = weeks.index(shortage_week)
-    stock_before = opening_stock if idx == 0 else projected[weeks[idx - 1]]
-    window = weeks[idx : idx + max(1, params.coverage_weeks)]
+    order_date = week_start(shortage_week) - timedelta(days=params.lead_time_days)
+    is_overdue = order_date < today
+    effective_order = max(order_date, today)
+    arrival_week = week_key(effective_order + timedelta(days=params.lead_time_days))
+
+    # Окно покрытия начинается не раньше недели, в которую товар физически может
+    # прийти. Когда заказ не просрочен, это и есть неделя дефицита. Когда просрочен —
+    # более поздняя: недели до прихода закрыть уже нечем, и считать на них закупку
+    # значит заказывать то, что всё равно не успеет. Без этого заказ, размещённый
+    # по просроченной строке, не уменьшал бы потребность, и она висела бы вечно.
+    if arrival_week > shortage_week and arrival_week not in weeks:
+        return PurchaseSuggestion(
+            needed=False,
+            shortage_week=shortage_week,
+            order_date=order_date,
+            arrival_week=arrival_week,
+            safety_stock=safety,
+            is_overdue=is_overdue,
+            reason="товар придёт за горизонтом планирования",
+        )
+
+    start_week = max(shortage_week, arrival_week)
+    start_idx = weeks.index(start_week)
+    # Дефицит не переносится на будущее: непроданное из-за нехватки — потерянные
+    # продажи, а не долг. Поэтому минус на входе в окно обнуляется, иначе заказ
+    # раздувался бы на объём, который уже не продать.
+    stock_before = max(0.0, opening_stock if start_idx == 0 else projected[weeks[start_idx - 1]])
+    window = weeks[start_idx : start_idx + max(1, params.coverage_weeks)]
 
     window_demand = sum(demand.get(w, 0.0) for w in window)
     window_transit = sum(in_transit.get(w, 0.0) for w in window)
     need = window_demand + safety - stock_before - window_transit
 
     qty = apply_constraints(need, params)
-
-    order_date = week_start(shortage_week) - timedelta(days=params.lead_time_days)
-    is_overdue = order_date < today
-    effective_order = max(order_date, today)
-    arrival_week = week_key(effective_order + timedelta(days=params.lead_time_days))
 
     return PurchaseSuggestion(
         needed=qty > 0,

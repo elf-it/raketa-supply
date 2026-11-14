@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from .calc import BulkOperation, Level, Status
-from .models import Role
+from .models import OrderStatus, Role
+
+
+def _with_utc(value: datetime) -> datetime:
+    """Помечает время как UTC.
+
+    База хранит отметки времени в UTC, но без зоны. Браузер разбирает такую строку
+    как местное время, и момент съезжает на часовой пояс — заказ, созданный в 06:56,
+    показывался как 02:56. Зона проставляется один раз здесь, на границе HTTP.
+    """
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
+
+#: Отметка времени, уезжающая в JSON с явной зоной.
+UtcDatetime = Annotated[datetime, AfterValidator(_with_utc)]
 
 
 class BaseModel_(BaseModel):
@@ -179,7 +194,7 @@ class JournalEntryOut(BaseModel_):
     old_value: float | None = None
     new_value: float | None = None
     author: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class JournalPageOut(BaseModel_):
@@ -195,7 +210,7 @@ class JournalBatchOut(BaseModel_):
     batch_id: str
     operation: str
     author: str | None = None
-    created_at: datetime
+    created_at: UtcDatetime
     cells: int
     pairs: int
     week_from: str
@@ -254,6 +269,52 @@ class PurchasePlanOut(BaseModel_):
     total_cost: float
     total_volume_m3: float
     overdue_count: int
+
+
+class OrderLineIn(BaseModel_):
+    pair_id: int
+    qty: int = Field(gt=0)
+    arrival_week: str = Field(min_length=8, max_length=8)
+
+
+class OrderIn(BaseModel_):
+    lines: list[OrderLineIn] = Field(min_length=1)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class OrderStatusIn(BaseModel_):
+    status: OrderStatus
+
+
+class OrderLineOut(BaseModel_):
+    id: int
+    pair_id: int
+    store_name: str
+    vendor_code: str
+    title: str
+    qty: int
+    arrival_week: str
+    cost: float
+    volume_m3: float
+
+
+class OrderOut(BaseModel_):
+    id: int
+    status: OrderStatus
+    status_label: str
+    supplier: str | None = None
+    note: str | None = None
+    created_at: UtcDatetime
+    created_by: str | None = None
+    placed_at: UtcDatetime | None = None
+    closed_at: UtcDatetime | None = None
+    lines_count: int
+    total_qty: int
+    total_cost: float
+    total_volume_m3: float
+    #: Статусы, в которые заказ можно перевести прямо сейчас.
+    next_statuses: list[OrderStatus] = []
+    lines: list[OrderLineOut] = []
 
 
 class BasePotentialIn(BaseModel_):

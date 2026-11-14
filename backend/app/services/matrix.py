@@ -253,7 +253,11 @@ def build_series_inputs(
         select(Supply).where(Supply.store_product_id.in_(pair_ids), Supply.week.in_(weeks))
     ).all():
         supplies[row.store_product_id][row.week] += row.qty
-        if row.status in (SupplyStatus.PLANNED, SupplyStatus.IN_TRANSIT):
+        # Поставка в незакрытой неделе — всё ещё ожидаемый приход, какой бы статус
+        # ей ни проставили руками: факта по этой неделе ещё нет, и в остатке её нет.
+        # Иначе заказ, отмеченный принятым до недели прихода, исчезал бы из расчёта
+        # и потребность возвращалась бы на пустом месте.
+        if row.week > last_closed or row.status in (SupplyStatus.PLANNED, SupplyStatus.IN_TRANSIT):
             in_transit[row.store_product_id][row.week] += row.qty
 
     plans: dict[int, dict[str, float]] = defaultdict(dict)

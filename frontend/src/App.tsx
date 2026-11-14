@@ -6,6 +6,7 @@ import { BulkPanel } from './components/BulkPanel';
 import { JournalPage } from './components/JournalPage';
 import { KpiBar } from './components/KpiBar';
 import { LoginPage } from './components/LoginPage';
+import { OrdersPage } from './components/OrdersPage';
 import { PurchasePanel } from './components/PurchasePanel';
 import { RowChart } from './components/RowChart';
 import { SeasonalityPage } from './components/SeasonalityPage';
@@ -17,6 +18,7 @@ import type {
   Level,
   Matrix,
   PurchasePlan,
+  PurchaseRow,
   Role,
   Store,
 } from './types';
@@ -33,11 +35,12 @@ const LEVELS: { id: Level; label: string }[] = [
   { id: 'sku', label: 'Артикулы' },
 ];
 
-type Tab = 'matrix' | 'purchase' | 'potential' | 'seasonality' | 'journal';
+type Tab = 'matrix' | 'purchase' | 'orders' | 'potential' | 'seasonality' | 'journal';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'matrix', label: 'Матрица' },
   { id: 'purchase', label: 'Закупка' },
+  { id: 'orders', label: 'Заказы' },
   { id: 'potential', label: 'Потенциал' },
   { id: 'seasonality', label: 'Сезонность' },
   { id: 'journal', label: 'Журнал' },
@@ -70,6 +73,7 @@ export default function App() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [chartRowKey, setChartRowKey] = useState<string | null>(null);
   const [onlyNeeded, setOnlyNeeded] = useState(true);
+  const [creatingOrder, setCreatingOrder] = useState(false);
 
   // Стабильные ссылки: иначе дочерние экраны перезапрашивают данные на каждый рендер.
   const pageFilters = useMemo(
@@ -187,6 +191,26 @@ export default function App() {
     },
     [filters],
   );
+
+  const createOrder = useCallback(async (rows: PurchaseRow[]) => {
+    setCreatingOrder(true);
+    try {
+      await api.createOrder({
+        lines: rows.map((row) => ({
+          pair_id: row.pair_id,
+          qty: row.qty,
+          arrival_week: row.arrival_week ?? '',
+        })),
+      });
+      setError(null);
+      // Черновик ничего не меняет в расчёте, но смотреть на него нужно на своём экране.
+      setTab('orders');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCreatingOrder(false);
+    }
+  }, []);
 
   const handleEdit = useCallback(
     async (pairId: number, week: string, field: string, value: number | null) => {
@@ -405,6 +429,22 @@ export default function App() {
           plan={purchase}
           onlyNeeded={onlyNeeded}
           onOnlyNeededChange={setOnlyNeeded}
+          canEdit={canEdit}
+          onCreateOrder={(rows) => void createOrder(rows)}
+          creatingOrder={creatingOrder}
+        />
+      )}
+
+      {tab === 'orders' && (
+        <OrdersPage
+          canEdit={canEdit}
+          onError={setError}
+          onChanged={() => {
+            // Размещение и отмена меняют товары в пути: пересчитанные данные
+            // должны ждать на экранах закупки и матрицы, а не прошлые.
+            setMatrix(null);
+            setPurchase(null);
+          }}
         />
       )}
 

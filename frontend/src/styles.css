@@ -1243,3 +1243,60 @@ table.purchase tr.detail-row td {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+/* --- Заказы поставщикам (B-11) ---------------------------------------------- */
+
+button.small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.group-order {
+  margin-left: 12px;
+}
+
+.order-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.badge.order {
+  border-width: 1px;
+  border-style: solid;
+}
+
+.badge.order.draft {
+  background: var(--closed);
+  border-color: var(--border-strong);
+  color: var(--muted);
+}
+
+.badge.order.placed {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+  color: var(--accent);
+}
+
+.badge.order.received {
+  background: var(--adapted-soft);
+  border-color: var(--adapted-soft);
+  color: var(--adapted);
+}
+
+.badge.order.cancelled {
+  background: var(--danger-soft);
+  border-color: var(--danger-soft);
+  color: var(--danger);
+}
+
+table.purchase.inner {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+table.purchase.inner th,
+table.purchase.inner td {
+  font-size: 13px;
+}

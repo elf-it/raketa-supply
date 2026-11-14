@@ -41,6 +41,22 @@ class SupplyStatus(str, enum.Enum):
     RECEIVED = "received"
 
 
+class OrderStatus(str, enum.Enum):
+    """Жизненный цикл заказа поставщику.
+
+    **[ДОПУЩЕНИЕ, Q-11]** Набор статусов выбран минимальным: черновик собирают
+    на экране закупки, размещение — момент, после которого товар считается
+    заказанным, приёмка закрывает заказ. Подтверждение поставщиком, частичная
+    отгрузка и возвраты не разделяются — для них нужен ответ заказчика о том,
+    ведётся ли заказ здесь или в учётной системе.
+    """
+
+    DRAFT = "draft"
+    PLACED = "placed"
+    RECEIVED = "received"
+    CANCELLED = "cancelled"
+
+
 class Role(str, enum.Enum):
     """Права доступа (требование приёмки по интерфейсу).
 
@@ -212,6 +228,64 @@ class Supply(Base):
         Enum(SupplyStatus, native_enum=False), default=SupplyStatus.PLANNED
     )
     note: Mapped[str | None] = mapped_column(Text, default=None)
+    #: Строка заказа, которая породила эту поставку. Пусто — поставка заведена
+    #: руками или пришла из маркетплейса.
+    order_line_id: Mapped[int | None] = mapped_column(
+        ForeignKey("purchase_order_lines.id", ondelete="CASCADE"), index=True, default=None
+    )
+
+
+class PurchaseOrder(Base):
+    """Заказ поставщику: документ со статусом.
+
+    Без него закупочная потребность пересчитывается заново при каждом запросе,
+    и отметить «заказано» негде. Заказ — единственное место, где фиксируется
+    решение человека; расчёт видит его через поставки (:class:`Supply`).
+    """
+
+    __tablename__ = "purchase_orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id"), index=True)
+    status: Mapped[OrderStatus] = mapped_column(
+        Enum(OrderStatus, native_enum=False), default=OrderStatus.DRAFT, index=True
+    )
+    note: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), default=None)
+    placed_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+    supplier: Mapped[Supplier | None] = relationship(lazy="joined")
+    created_by: Mapped[User | None] = relationship(lazy="joined")
+    lines: Mapped[list[PurchaseOrderLine]] = relationship(
+        back_populates="order", cascade="all, delete-orphan", lazy="selectin"
+    )
+
+
+class PurchaseOrderLine(Base):
+    """Строка заказа: сколько и чего заказали по паре (магазин, товар).
+
+    Себестоимость записывается на момент создания заказа: истории цен в системе
+    нет (задача B-9), а сумма заказа не должна меняться задним числом вслед
+    за карточкой товара.
+    """
+
+    __tablename__ = "purchase_order_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_orders.id", ondelete="CASCADE"), index=True
+    )
+    store_product_id: Mapped[int] = mapped_column(ForeignKey("store_products.id"), index=True)
+    qty: Mapped[int] = mapped_column(Integer, default=0)
+    #: Неделя прихода из расчёта закупки — она же неделя поставки.
+    arrival_week: Mapped[str] = mapped_column(String(8))
+    cost_price: Mapped[float] = mapped_column(Float, default=0.0)
+    volume_m3: Mapped[float] = mapped_column(Float, default=0.0)
+
+    order: Mapped[PurchaseOrder] = relationship(back_populates="lines")
+    pair: Mapped[StoreProduct] = relationship(lazy="joined")
 
 
 class WeekPlan(Base):

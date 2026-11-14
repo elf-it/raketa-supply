@@ -132,6 +132,44 @@ export interface PurchasePlan {
   overdue_count: number;
 }
 
+export type OrderStatus = 'draft' | 'placed' | 'received' | 'cancelled';
+
+export interface OrderLine {
+  id: number;
+  pair_id: number;
+  store_name: string;
+  vendor_code: string;
+  title: string;
+  qty: number;
+  arrival_week: string;
+  cost: number;
+  volume_m3: number;
+}
+
+export interface Order {
+  id: number;
+  status: OrderStatus;
+  status_label: string;
+  supplier: string | null;
+  note: string | null;
+  created_at: string;
+  created_by: string | null;
+  placed_at: string | null;
+  closed_at: string | null;
+  lines_count: number;
+  total_qty: number;
+  total_cost: number;
+  total_volume_m3: number;
+  /** Статусы, в которые заказ можно перевести прямо сейчас. */
+  next_statuses: OrderStatus[];
+  lines: OrderLine[];
+}
+
+export interface OrderDraft {
+  lines: { pair_id: number; qty: number; arrival_week: string }[];
+  note?: string;
+}
+
 export type BulkOperation = 'scale' | 'delta' | 'set' | 'clear' | 'move';
 
 export interface BulkRequest {

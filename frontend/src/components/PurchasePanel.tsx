@@ -84,9 +84,20 @@ interface Props {
   plan: PurchasePlan;
   onlyNeeded: boolean;
   onOnlyNeededChange: (value: boolean) => void;
+  canEdit: boolean;
+  /** Собирает черновик заказа из строк группы; занят — пока уходит запрос. */
+  onCreateOrder: (rows: PurchaseRow[]) => void;
+  creatingOrder: boolean;
 }
 
-export function PurchasePanel({ plan, onlyNeeded, onOnlyNeededChange }: Props) {
+export function PurchasePanel({
+  plan,
+  onlyNeeded,
+  onOnlyNeededChange,
+  canEdit,
+  onCreateOrder,
+  creatingOrder,
+}: Props) {
   const [grouped, setGrouped] = useState(true);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -209,6 +220,15 @@ export function PurchasePanel({ plan, onlyNeeded, onOnlyNeededChange }: Props) {
                         <span className="badge status short">просрочено {group.overdue}</span>
                       )}
                     </span>
+                    {canEdit && group.rows.some((row) => row.needed) && (
+                      <button
+                        className="small group-order"
+                        disabled={creatingOrder}
+                        onClick={() => onCreateOrder(group.rows.filter((row) => row.needed))}
+                      >
+                        Сформировать заказ
+                      </button>
+                    )}
                   </th>
                   <td className="num strong">{qty(group.qty)}</td>
                   <td className="num">{moneyFormat.format(group.cost)}</td>

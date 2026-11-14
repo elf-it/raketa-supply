@@ -93,10 +93,57 @@ def test_coverage_window_is_clipped_by_horizon():
     weeks = week_range("2026-W46", 3)
     params = PurchaseParams(coverage_weeks=8, safety_weeks=0.0, moq=0, pack_size=1)
     result = suggest_purchase(
-        weeks, dict.fromkeys(weeks, 100.0), {}, opening_stock=0.0, params=params, today=TODAY
+        weeks,
+        dict.fromkeys(weeks, 100.0),
+        {},
+        opening_stock=0.0,
+        params=params,
+        today=date(2026, 10, 20),  # заказ ещё не просрочен, окно начинается с дефицита
     )
     assert result.coverage_weeks_used == 3
     assert result.coverage_to == weeks[-1]
+
+
+def test_overdue_window_starts_at_the_arrival_week():
+    """Просроченный заказ не покрывает недели, которые пройдут до прихода товара."""
+    params = PurchaseParams(
+        lead_time_days=60, coverage_weeks=4, safety_weeks=0.0, moq=0, pack_size=1
+    )
+    result = suggest_purchase(WEEKS, DEMAND, {}, opening_stock=50.0, params=params, today=TODAY)
+    assert result.is_overdue is True
+    assert result.coverage_from == result.arrival_week > result.shortage_week
+    # Минус реального стока — потерянные продажи, а не долг: в заказ он не попадает.
+    assert result.stock_before == 0.0
+    assert result.qty_before_constraints == 4 * 100.0
+
+
+def test_order_already_placed_removes_the_need():
+    """Повторный расчёт после заказа не предлагает купить то же самое снова."""
+    params = PurchaseParams(
+        lead_time_days=60, coverage_weeks=4, safety_weeks=0.0, moq=0, pack_size=1
+    )
+    first = suggest_purchase(WEEKS, DEMAND, {}, opening_stock=50.0, params=params, today=TODAY)
+    assert first.arrival_week is not None
+    # Разместили ровно то, что посоветовал расчёт: партия придёт на неделе прихода.
+    again = suggest_purchase(
+        WEEKS,
+        DEMAND,
+        {first.arrival_week: float(first.qty)},
+        opening_stock=50.0,
+        params=params,
+        today=TODAY,
+    )
+    assert again.qty == 0
+
+
+def test_arrival_beyond_horizon_is_not_an_order():
+    weeks = week_range("2026-W46", 3)
+    params = PurchaseParams(lead_time_days=90, coverage_weeks=4, safety_weeks=0.0)
+    result = suggest_purchase(
+        weeks, dict.fromkeys(weeks, 100.0), {}, opening_stock=0.0, params=params, today=TODAY
+    )
+    assert result.needed is False
+    assert "за горизонтом" in result.reason
 
 
 def test_pack_size_and_moq():

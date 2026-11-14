@@ -9,6 +9,9 @@ import type {
   JournalQuery,
   Matrix,
   MatrixFilters,
+  Order,
+  OrderDraft,
+  OrderStatus,
   PurchasePlan,
   SeasonalityRow,
   Store,
@@ -143,6 +146,18 @@ export const api = {
     request<SeasonalityRow>(`/reference/seasonality/${categoryId}`, {
       method: 'PUT',
       body: JSON.stringify({ coefficients }),
+    }),
+
+  orders: (status?: OrderStatus) =>
+    request<Order[]>(`/orders${status ? `?status=${status}` : ''}`),
+
+  createOrder: (draft: OrderDraft) =>
+    request<Order>('/orders', { method: 'POST', body: JSON.stringify(draft) }),
+
+  setOrderStatus: (orderId: number, status: OrderStatus) =>
+    request<Order>(`/orders/${orderId}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
     }),
 
   syncWb: () => request<unknown>('/sync/wb', { method: 'POST' }),
