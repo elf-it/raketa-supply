@@ -1113,3 +1113,133 @@ table.matrix tr.charted .row-title.pick {
 .chart .axis-title.to-end {
   text-anchor: end;
 }
+
+/* --- Экран закупки (F-7) ---------------------------------------------------- */
+
+.purchase-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0 4px;
+  font-size: 13px;
+}
+
+.switch {
+  display: flex;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.switch button {
+  border: none;
+  background: transparent;
+  padding: 5px 12px;
+  font-size: 13px;
+}
+
+.switch button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+table.purchase tr.group-head th,
+table.purchase tr.group-head td {
+  background: var(--accent-soft);
+  border-top: 1px solid var(--border-strong);
+  padding-top: 8px;
+  padding-bottom: 8px;
+  vertical-align: middle;
+}
+
+.group-toggle {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  border-radius: 0;
+}
+
+.group-toggle .caret {
+  display: inline-block;
+  width: 14px;
+  color: var(--muted);
+}
+
+.group-meta {
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 10px;
+  font-size: 12px;
+}
+
+.group-meta .badge {
+  margin-left: 8px;
+}
+
+table.purchase tr.idle-row td {
+  color: var(--muted);
+}
+
+.rounded-from {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+table.purchase td .badge.status {
+  margin-left: 6px;
+}
+
+button.link.small {
+  font-size: 12px;
+}
+
+table.purchase tr.detail-row td {
+  background: #fbfcfc;
+  padding: 10px 14px 14px;
+}
+
+.explain p {
+  margin: 0 0 6px;
+  max-width: 900px;
+}
+
+.explain .formula {
+  font-variant-numeric: tabular-nums;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: inline-block;
+}
+
+.params {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 16px;
+  margin: 10px 0 0;
+}
+
+.params div {
+  display: flex;
+  flex-direction: column;
+}
+
+.params dt {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.params dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}

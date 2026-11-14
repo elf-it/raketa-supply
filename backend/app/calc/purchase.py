@@ -113,6 +113,12 @@ def suggest_purchase(
         volume_m3=qty * params.volume_m3,
         safety_stock=safety,
         is_overdue=is_overdue,
+        coverage_from=window[0],
+        coverage_to=window[-1],
+        coverage_weeks_used=len(window),
+        window_demand=window_demand,
+        window_transit=window_transit,
+        stock_before=stock_before,
         reason=(
             f"остаток опускается ниже страхового запаса на неделе {shortage_week}"
             if qty > 0

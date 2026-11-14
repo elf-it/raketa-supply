@@ -32,6 +32,12 @@ def _to_out(row: PurchaseRow) -> PurchaseRowOut:
         safety_stock=s.safety_stock,
         is_overdue=s.is_overdue,
         reason=s.reason,
+        coverage_from=s.coverage_from,
+        coverage_to=s.coverage_to,
+        coverage_weeks_used=s.coverage_weeks_used,
+        window_demand=s.window_demand,
+        window_transit=s.window_transit,
+        stock_before=s.stock_before,
         params=PurchaseParamsOut.model_validate(row.params),
     )
 

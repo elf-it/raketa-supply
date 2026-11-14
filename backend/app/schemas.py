@@ -238,6 +238,13 @@ class PurchaseRowOut(BaseModel_):
     safety_stock: float
     is_overdue: bool
     reason: str
+    #: Разбор количества, см. PurchaseSuggestion.
+    coverage_from: str | None = None
+    coverage_to: str | None = None
+    coverage_weeks_used: int = 0
+    window_demand: float = 0.0
+    window_transit: float = 0.0
+    stock_before: float = 0.0
     params: PurchaseParamsOut
 
 

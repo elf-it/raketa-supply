@@ -96,8 +96,8 @@ export const api = {
 
   matrix: (filters: MatrixFilters) => request<Matrix>(`/matrix?${query(filters)}`),
 
-  purchase: (filters: Omit<MatrixFilters, 'level'>) =>
-    request<PurchasePlan>(`/purchase?only_needed=true&${query(filters)}`),
+  purchase: (filters: Omit<MatrixFilters, 'level'>, onlyNeeded: boolean) =>
+    request<PurchasePlan>(`/purchase?only_needed=${onlyNeeded}&${query(filters)}`),
 
   setForecast: (
     pairId: number,

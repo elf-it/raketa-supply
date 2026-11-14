@@ -71,6 +71,34 @@ def test_in_transit_reduces_quantity():
     assert with_transit.qty == plain.qty - 150
 
 
+def test_breakdown_reconstructs_quantity():
+    """Экран объясняет количество этими числами, поэтому они обязаны сходиться."""
+    params = PurchaseParams(
+        lead_time_days=7, coverage_weeks=4, safety_weeks=2.0, moq=0, pack_size=1
+    )
+    result = suggest_purchase(
+        WEEKS, DEMAND, {"2026-W49": 150.0}, opening_stock=450.0, params=params, today=TODAY
+    )
+    assert result.coverage_from == result.shortage_week
+    assert result.coverage_weeks_used == 4
+    assert result.window_transit == 150.0
+    assert (
+        result.window_demand + result.safety_stock - result.stock_before - result.window_transit
+        == result.qty_before_constraints
+    )
+
+
+def test_coverage_window_is_clipped_by_horizon():
+    """В конце горизонта окно покрытия короче заданного — экран показывает фактическое."""
+    weeks = week_range("2026-W46", 3)
+    params = PurchaseParams(coverage_weeks=8, safety_weeks=0.0, moq=0, pack_size=1)
+    result = suggest_purchase(
+        weeks, dict.fromkeys(weeks, 100.0), {}, opening_stock=0.0, params=params, today=TODAY
+    )
+    assert result.coverage_weeks_used == 3
+    assert result.coverage_to == weeks[-1]
+
+
 def test_pack_size_and_moq():
     assert apply_constraints(0, PurchaseParams(moq=100, pack_size=50)) == 0
     assert apply_constraints(120, PurchaseParams(moq=0, pack_size=50)) == 150

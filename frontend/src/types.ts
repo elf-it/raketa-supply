@@ -106,6 +106,13 @@ export interface PurchaseRow {
   safety_stock: number;
   is_overdue: boolean;
   reason: string;
+  /** Разбор количества: приходит из расчёта, экран его только показывает. */
+  coverage_from: string | null;
+  coverage_to: string | null;
+  coverage_weeks_used: number;
+  window_demand: number;
+  window_transit: number;
+  stock_before: number;
   params: {
     lead_time_days: number;
     moq: number;

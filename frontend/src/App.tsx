@@ -69,6 +69,7 @@ export default function App() {
   const [selectedPairs, setSelectedPairs] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [chartRowKey, setChartRowKey] = useState<string | null>(null);
+  const [onlyNeeded, setOnlyNeeded] = useState(true);
 
   // Стабильные ссылки: иначе дочерние экраны перезапрашивают данные на каждый рендер.
   const pageFilters = useMemo(
@@ -118,7 +119,7 @@ export default function App() {
       if (tab === 'matrix') {
         setMatrix(await api.matrix(filters));
       } else {
-        setPurchase(await api.purchase(filters));
+        setPurchase(await api.purchase(filters, onlyNeeded));
       }
       setError(null);
     } catch (err) {
@@ -126,7 +127,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [filters, tab, user]);
+  }, [filters, onlyNeeded, tab, user]);
 
   useEffect(() => {
     void reload();
@@ -399,7 +400,13 @@ export default function App() {
         </>
       )}
 
-      {tab === 'purchase' && purchase && <PurchasePanel plan={purchase} />}
+      {tab === 'purchase' && purchase && (
+        <PurchasePanel
+          plan={purchase}
+          onlyNeeded={onlyNeeded}
+          onOnlyNeededChange={setOnlyNeeded}
+        />
+      )}
 
       {tab === 'potential' && (
         <BasePotentialPage filters={pageFilters} onError={setError} canEdit={canEdit} />

@@ -142,6 +142,19 @@ def test_purchase_plan_respects_pack_size(client):
         assert row["order_date"] is not None
 
 
+def test_purchase_rows_explain_their_quantity(client):
+    """Экран закупки показывает разбор количества — он приходит из расчёта, не из UI."""
+    plan = client.get("/api/v1/purchase?only_needed=true").json()
+    for row in plan["rows"]:
+        assert row["coverage_from"] is not None
+        assert row["coverage_to"] >= row["coverage_from"]
+        assert row["coverage_weeks_used"] > 0
+        reconstructed = (
+            row["window_demand"] + row["safety_stock"] - row["stock_before"] - row["window_transit"]
+        )
+        assert abs(reconstructed - row["qty_before_constraints"]) < 1e-6, row["vendor_code"]
+
+
 def test_sync_is_idempotent(client):
     first = client.post("/api/v1/sync/wb?days=140").json()
     second = client.post("/api/v1/sync/wb?days=140").json()

@@ -59,6 +59,15 @@ CATEGORIES = [
     ("Декор", "Товары для дома", "C"),
 ]
 
+# (поставщик, lead time по умолчанию, MOQ по умолчанию, его категории).
+# Заказ уходит поставщику целиком, поэтому экран закупки группирует по ним; с одним
+# поставщиком на весь каталог эта группировка ничего бы не показывала.
+SUPPLIERS = [
+    ("Фары и оптика", 35, 200, ["Лампы"]),
+    ("Радиосвязь-Импорт", 45, 50, ["Рации"]),
+    ("Праздник-Опт", 25, 100, ["Аксессуары", "Декор"]),
+]
+
 # (артикул, название, категория, себестоимость, цена, м³, lead time, MOQ, PCB)
 PRODUCTS = [
     ("2041904540146", "Лампа A10 H7 светодиодная", "Лампы", 420, 1190, 0.0012, 35, 200, 50),
@@ -153,8 +162,12 @@ def seed_users(session: Session) -> None:
 
 
 def seed_catalog(session: Session) -> None:
-    supplier = Supplier(name="Основной поставщик", lead_time_days=30, moq=100)
-    session.add(supplier)
+    supplier_by_category: dict[str, Supplier] = {}
+    for name, lead, moq, category_names in SUPPLIERS:
+        supplier = Supplier(name=name, lead_time_days=lead, moq=moq)
+        session.add(supplier)
+        for category_name in category_names:
+            supplier_by_category[category_name] = supplier
 
     categories: dict[str, Category] = {}
     for name, niche, abc in CATEGORIES:
@@ -176,7 +189,7 @@ def seed_catalog(session: Session) -> None:
             vendor_code=vendor_code,
             title=title,
             category_id=categories[category].id,
-            supplier_id=supplier.id,
+            supplier_id=supplier_by_category[category].id,
             cost_price=cost,
             price=price,
             volume_m3=volume,

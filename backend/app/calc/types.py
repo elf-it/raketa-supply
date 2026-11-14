@@ -148,3 +148,12 @@ class PurchaseSuggestion:
     safety_stock: float = 0.0
     is_overdue: bool = False
     reason: str = ""
+    #: Разбор количества: окно покрытия, спрос внутри него, партии в пути внутри него
+    #: и остаток на входе в окно. Экран показывает цифру теми же числами, которыми она
+    #: посчитана; без этого объяснение пришлось бы собирать второй реализацией формулы.
+    coverage_from: str | None = None
+    coverage_to: str | None = None
+    coverage_weeks_used: int = 0
+    window_demand: float = 0.0
+    window_transit: float = 0.0
+    stock_before: float = 0.0

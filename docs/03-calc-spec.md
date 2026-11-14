@@ -126,6 +126,13 @@ projected[s,w]    = projected[s,w-1] + in_transit[s,w] - original[s,w]
 3. **Результат.** `qty`, `cost = qty * cost_price`, `volume = qty * volume_m3`,
    `arrival_week` = ISO-неделя даты `order_date + L`.
 
+Слагаемые `need` возвращаются наружу по отдельности: `window_demand`, `safety_stock`,
+`stock_before`, `window_transit`, плюс границы окна `coverage_from` / `coverage_to`
+и его фактическая длина `coverage_weeks_used` — в конце горизонта окно короче, чем
+`C`. Экран закупки показывает ими разбор количества. Это сделано ради того, чтобы
+объяснение не превратилось во вторую реализацию формулы на фронтенде: тест
+`test_breakdown_reconstructs_quantity` требует, чтобы разбор сходился с `qty_raw`.
+
 **[ДОПУЩЕНИЕ, Q-6]** PCB трактуется как кратность упаковки в штуках.
 **[ДОПУЩЕНИЕ, Q-7]** `coverage` и `safety` заданы в неделях, а не в штуках.
 **[ОТКРЫТО, Q-2]** ROI в ТЗ упомянут без определения — в расчёт пока не входит.
