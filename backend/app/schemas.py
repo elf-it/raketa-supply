@@ -342,6 +342,45 @@ class OrderOut(BaseModel_):
     lines: list[OrderLineOut] = []
 
 
+class ImportChangeOut(BaseModel_):
+    pair_id: int
+    store_name: str
+    vendor_code: str
+    title: str
+    week: str
+    old_value: float
+    new_value: float
+
+
+class ImportConflictOut(ImportChangeOut):
+    #: Кто и когда поменял эту ячейку уже после того, как файл выгрузили.
+    changed_at: UtcDatetime
+    changed_by: str | None = None
+
+
+class ImportIssueOut(BaseModel_):
+    reason: str
+    count: int
+    examples: list[str] = []
+
+
+class MatrixImportOut(BaseModel_):
+    """Что файл меняет и что из него не взяли. Один и тот же ответ на разбор и на применение."""
+
+    exported_at: UtcDatetime
+    applied: bool
+    rows_read: int
+    cells_read: int
+    change_count: int
+    conflict_count: int
+    applied_cells: int
+    batch_id: str | None = None
+    #: Начало списков: показать тысячу строк всё равно некуда.
+    changes: list[ImportChangeOut] = []
+    conflicts: list[ImportConflictOut] = []
+    issues: list[ImportIssueOut] = []
+
+
 class BasePotentialIn(BaseModel_):
     base_potential: float = Field(ge=0)
 

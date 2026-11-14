@@ -1356,6 +1356,54 @@ table.purchase tr.detail-row td {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+/* --- Загрузка правок из файла (G-9) ----------------------------------------- */
+
+.import-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+/* Настоящий input прячем: своя подпись у него не настраивается. */
+.import-pick input[type='file'] {
+  display: none;
+}
+
+.import-pick {
+  cursor: pointer;
+}
+
+.import-report {
+  flex-basis: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+}
+
+.import-summary {
+  margin: 0 0 8px;
+}
+
+.import-rows {
+  margin-bottom: 8px;
+}
+
+.import-issues {
+  margin: 8px 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.import-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 4px;
+}
+
 /* --- Заказы поставщикам (B-11) ---------------------------------------------- */
 
 button.small {

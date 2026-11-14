@@ -150,6 +150,43 @@ export interface PurchasePlan {
   overdue_count: number;
 }
 
+/** Разбор загруженного файла: что он изменит и чего из него не взяли. */
+export interface ImportChange {
+  pair_id: number;
+  store_name: string;
+  vendor_code: string;
+  title: string;
+  week: string;
+  old_value: number;
+  new_value: number;
+}
+
+export interface ImportConflict extends ImportChange {
+  /** Кто и когда поменял ячейку уже после выгрузки файла. */
+  changed_at: string;
+  changed_by: string | null;
+}
+
+export interface ImportIssue {
+  reason: string;
+  count: number;
+  examples: string[];
+}
+
+export interface MatrixImport {
+  exported_at: string;
+  applied: boolean;
+  rows_read: number;
+  cells_read: number;
+  change_count: number;
+  conflict_count: number;
+  applied_cells: number;
+  batch_id: string | null;
+  changes: ImportChange[];
+  conflicts: ImportConflict[];
+  issues: ImportIssue[];
+}
+
 export type OrderStatus = 'draft' | 'placed' | 'received' | 'cancelled';
 
 export interface OrderLine {

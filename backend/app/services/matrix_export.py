@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from io import BytesIO
 
 from openpyxl import Workbook
@@ -156,11 +156,32 @@ def _write_block(
     return start + len(METRIC_ROWS)
 
 
+#: Как выглядит отметка о моменте выгрузки. Время нужно обратной загрузке (G-9):
+#: по нему видно, не поменял ли кто-то эти недели, пока файл правили. Зона явная
+#: и всегда UTC — в базе отметки журнала тоже в UTC, и сравнивать их с местным
+#: временем сервера значило бы ошибаться на часовой пояс в опасную сторону.
+#: Секунды здесь не педантизм: отметка сравнивается с журналом правок, и округление
+#: до минуты превращало бы чужую правку, сделанную в ту же минуту, в ложный конфликт.
+EXPORT_STAMP_LABEL = "Выгружено"
+EXPORT_STAMP_FORMAT = "%d.%m.%Y %H:%M:%S"
+EXPORT_STAMP_ZONE = "UTC"
+
+
+def export_stamp(moment: datetime) -> str:
+    return f"{moment.strftime(EXPORT_STAMP_FORMAT)} {EXPORT_STAMP_ZONE}"
+
+
+def week_header(key: str) -> str:
+    """Заголовок колонки недели: «W46» и год под ним, как в таблице на экране."""
+    year, number = key.split("-W")
+    return f"W{number}\n{year}"
+
+
 def build_matrix_workbook(
     matrix: Matrix,
     store_name: str | None = None,
     category_name: str | None = None,
-    today: date | None = None,
+    now: datetime | None = None,
 ) -> bytes:
     workbook = Workbook()
     sheet = workbook.active
@@ -177,7 +198,7 @@ def build_matrix_workbook(
             sheet,
             3,
             [
-                ("Выгружено", (today or date.today()).strftime("%d.%m.%Y")),
+                (EXPORT_STAMP_LABEL, export_stamp(now or datetime.now(UTC))),
                 ("Магазин", store_name or "все магазины"),
                 ("Категория", category_name or "все ниши и категории"),
                 ("Поиск", matrix.context["filters"].get("search")),
@@ -221,7 +242,12 @@ def build_matrix_workbook(
             sheet,
             head,
             first_week_column + index,
-            f"W{week['iso_week']:02d}",
+            # Год стоит в самой ячейке, а не только в строке месяцев: номера недель
+            # начинаются заново, и на длинном горизонте «W02» без года не опознать —
+            # ни глазами, ни обратной загрузкой. Год берётся из ключа недели,
+            # а не из даты её понедельника: неделя 2027-W01 начинается в декабре
+            # 2026-го, и по дате файл вернулся бы не в ту неделю.
+            week_header(week["key"]),
             bold=True,
             fill=CLOSED_FILL if week["is_closed"] else HEADER_FILL,
         )

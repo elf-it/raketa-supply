@@ -116,6 +116,31 @@ def set_adjustment(
     return row
 
 
+def set_forecast_cells(
+    session: Session,
+    cells: list[tuple[int, str, float]],
+    *,
+    operation: str,
+    author: str | None = None,
+    batch_id: str | None = None,
+) -> int:
+    """Ставит ручной прогноз сразу в нескольких ячейках, одной записью операции.
+
+    Нужна тем, кто правит набор ячеек не формулой, а готовым списком значений —
+    сейчас это загрузка из файла (G-9). Журнал получает общий ``batch_id``,
+    поэтому такая правка читается как одно действие, а не как поток ячеек.
+    """
+    changed = 0
+    for pair_id, week, value in cells:
+        row = _ensure_row(session, pair_id, week)
+        if _apply_updates(
+            session, row, {"manual_forecast": float(value)}, author, operation, batch_id
+        ):
+            changed += 1
+    session.commit()
+    return changed
+
+
 # ------------------------------------------------------------------- массовые правки
 
 

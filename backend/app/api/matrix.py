@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from ..calc import Level, Status
 from ..db import get_session
-from ..models import StoreProduct
-from ..schemas import MatrixOut
+from ..models import StoreProduct, User
+from ..schemas import MatrixImportOut, MatrixOut
+from ..services import matrix_import
 from ..services.matrix import MatrixFilters, build_matrix
 from ..services.matrix_export import build_matrix_workbook, matrix_filename
+from .deps import require_editor
 from .responses import filter_names, xlsx_response
 
 router = APIRouter(prefix="/matrix", tags=["Матрица"])
@@ -102,6 +104,53 @@ def get_matrix_row(
         totals=matrix.totals,  # type: ignore[arg-type]
         kpi=matrix.kpi,  # type: ignore[arg-type]
         context=matrix.context,
+    )
+
+
+#: Сколько строк разбора кладём в ответ. Остальное — счётчиками: на тысяче правок
+#: подробный список некуда показать, а решение принимают по числам и по началу списка.
+IMPORT_PREVIEW_ROWS = 50
+
+
+@router.post(
+    "/import",
+    response_model=MatrixImportOut,
+    summary="Загрузка правок прогноза из выгруженного файла",
+)
+def import_matrix(
+    file: UploadFile = File(..., description="Выгрузка матрицы по артикулам с правками"),
+    apply: bool = Query(False, description="false — только разбор, в базу ничего не пишется"),
+    session: Session = Depends(get_session),
+    user: User = Depends(require_editor),
+) -> MatrixImportOut:
+    """Возвращает прогноз из файла в систему — только изменённые ячейки.
+
+    По умолчанию ничего не пишет: сначала человек видит, что именно изменится,
+    и только потом подтверждает. Поэтому файл приходит дважды — разбор и
+    применение независимы, и сервер не помнит между ними ничего.
+    """
+    data = file.file.read()
+    try:
+        report = (
+            matrix_import.apply_import(session, data, author=user.display_name)
+            if apply
+            else matrix_import.analyze(session, data)
+        )
+    except matrix_import.MatrixImportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    return MatrixImportOut(
+        exported_at=report.exported_at,
+        applied=report.applied,
+        rows_read=report.rows_read,
+        cells_read=report.cells_read,
+        change_count=len(report.changes),
+        conflict_count=len(report.conflicts),
+        applied_cells=report.applied_cells,
+        batch_id=report.batch_id,
+        changes=report.changes[:IMPORT_PREVIEW_ROWS],  # type: ignore[arg-type]
+        conflicts=report.conflicts[:IMPORT_PREVIEW_ROWS],  # type: ignore[arg-type]
+        issues=report.issues,  # type: ignore[arg-type]
     )
 
 

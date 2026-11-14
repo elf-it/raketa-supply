@@ -9,6 +9,7 @@ import type {
   JournalQuery,
   Matrix,
   MatrixFilters,
+  MatrixImport,
   Order,
   OrderDraft,
   OrderStatus,
@@ -152,6 +153,20 @@ export const api = {
 
   purchaseExportUrl: (filters: Omit<MatrixFilters, 'level'>, onlyNeeded: boolean) =>
     `${BASE}/purchase/export?only_needed=${onlyNeeded}&${query(filters)}`,
+
+  // Обратная дорога: файл уходит на сервер как есть. Сначала с `apply=false` —
+  // это только разбор, в базу ничего не пишется; человек смотрит, что изменится,
+  // и тот же файл уходит второй раз уже с подтверждением.
+  importMatrix: (file: File, apply: boolean) => {
+    const body = new FormData();
+    body.append('file', file);
+    // Content-Type не ставим руками: его с границей формы проставляет браузер.
+    return request<MatrixImport>(`/matrix/import?apply=${apply}`, {
+      method: 'POST',
+      headers: {},
+      body,
+    });
+  },
 
   setForecast: (
     pairId: number,

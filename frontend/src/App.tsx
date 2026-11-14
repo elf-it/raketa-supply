@@ -4,6 +4,7 @@ import { api, setUnauthorizedHandler } from './api';
 import { BasePotentialPage } from './components/BasePotentialPage';
 import { BulkPanel } from './components/BulkPanel';
 import { ChangePassword } from './components/ChangePassword';
+import { ImportPanel } from './components/ImportPanel';
 import { JournalPage } from './components/JournalPage';
 import { KpiBar } from './components/KpiBar';
 import { LoginPage } from './components/LoginPage';
@@ -638,6 +639,12 @@ export default function App() {
               Скачать .xlsx
             </a>
           </div>
+
+          {/* Обратная дорога файла: только на уровне артикулов — у строки группы
+              нет однозначного разложения правки по позициям. */}
+          {matrix.level === 'sku' && canEdit && (
+            <ImportPanel onApplied={() => void reload()} onError={setError} />
+          )}
 
           {matrix.level === 'sku' && canEdit && (
             <BulkPanel
