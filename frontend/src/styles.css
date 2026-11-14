@@ -1300,3 +1300,18 @@ table.purchase.inner th,
 table.purchase.inner td {
   font-size: 13px;
 }
+.button-link {
+  display: inline-block;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.button-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

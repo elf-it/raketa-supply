@@ -191,7 +191,11 @@ export function OrdersPage({ canEdit, onError, onChanged }: Props) {
                             {ACTIONS[next]}
                           </button>
                         ))}
-                      {order.next_statuses.length === 0 && <span className="muted">закрыт</span>}
+                      {/* Обычная ссылка, а не fetch: браузер сам сохранит файл
+                          с именем, которое прислал сервер. */}
+                      <a className="button-link small" href={`/api/v1/orders/${order.id}/export`}>
+                        Скачать .xlsx
+                      </a>
                     </div>
                   </td>
                 </tr>

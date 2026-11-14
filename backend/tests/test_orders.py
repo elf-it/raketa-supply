@@ -202,6 +202,67 @@ def test_timestamps_carry_the_time_zone(client):
         _status(client, order["id"], "cancelled")
 
 
+def test_export_is_a_readable_workbook(client):
+    """Файл уходит поставщику, поэтому проверяется не ответ, а содержимое книги."""
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    row = _first_needed(client)
+    order = _create(client, row)
+    try:
+        response = client.get(f"{API}/{order['id']}/export")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument"
+        )
+
+        sheet = load_workbook(BytesIO(response.content)).active
+        text = [
+            str(cell.value) for line in sheet.iter_rows() for cell in line if cell.value is not None
+        ]
+        assert f"Заказ поставщику № {order['id']}" in text
+        assert row["supplier"] in text
+        assert row["title"] in text
+        assert row["vendor_code"] in text
+        # Итог в файле должен сходиться с итогом заказа, а не считаться заново.
+        assert float(order["total_cost"]) in [float(value) for value in text if _is_number(value)]
+    finally:
+        _status(client, order["id"], "cancelled")
+
+
+def _is_number(value: str) -> bool:
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
+
+
+def test_export_filename_survives_cyrillic(client):
+    """Кириллица в имени файла уходит по RFC 5987: заголовок — только latin-1."""
+    row = _first_needed(client)
+    order = _create(client, row)
+    try:
+        disposition = client.get(f"{API}/{order['id']}/export").headers["content-disposition"]
+        assert f'filename="order-{order["id"]}.xlsx"' in disposition
+        assert "filename*=UTF-8''" in disposition
+        assert "%D0%97%D0%B0%D0%BA%D0%B0%D0%B7" in disposition  # «Заказ» в процентах
+    finally:
+        _status(client, order["id"], "cancelled")
+
+
+def test_viewer_can_export(client, viewer_client):
+    """Выгрузка — чтение: наблюдателю она доступна."""
+    row = _first_needed(client)
+    order = _create(client, row)
+    try:
+        assert viewer_client.get(f"{API}/{order['id']}/export").status_code == 200
+    finally:
+        _status(client, order["id"], "cancelled")
+
+
 def test_unknown_order_is_404(client):
     assert client.get(f"{API}/999999").status_code == 404
+    assert client.get(f"{API}/999999/export").status_code == 404
     assert client.post(f"{API}/999999/status", json={"status": "placed"}).status_code == 404

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi import status as http_status
 from sqlalchemy.orm import Session
 
@@ -8,9 +10,12 @@ from ..db import get_session
 from ..models import OrderStatus, PurchaseOrder, User
 from ..schemas import OrderIn, OrderLineOut, OrderOut, OrderStatusIn
 from ..services import orders as service
+from ..services.order_export import build_order_workbook, order_filename
 from .deps import require_editor
 
 router = APIRouter(prefix="/orders", tags=["Заказы"])
+
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _to_out(order: PurchaseOrder, with_lines: bool = True) -> OrderOut:
@@ -91,6 +96,26 @@ def get_order(order_id: int, session: Session = Depends(get_session)) -> OrderOu
     if order is None:
         raise HTTPException(status_code=404, detail="Заказ не найден")
     return _to_out(order)
+
+
+@router.get("/{order_id}/export", summary="Выгрузка заказа в XLSX")
+def export_order(order_id: int, session: Session = Depends(get_session)) -> Response:
+    """Файл для отправки поставщику: шапка заказа, строки и итоги."""
+    order = service.get_order(session, order_id)
+    if order is None:
+        raise HTTPException(status_code=404, detail="Заказ не найден")
+
+    filename = order_filename(order)
+    # Content-Disposition ограничен latin-1, поэтому кириллическое имя уходит
+    # по RFC 5987, а рядом остаётся ASCII-запасной вариант для старых клиентов.
+    disposition = (
+        f"attachment; filename=\"order-{order.id}.xlsx\"; filename*=UTF-8''{quote(filename)}"
+    )
+    return Response(
+        content=build_order_workbook(order),
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": disposition},
+    )
 
 
 @router.post("/{order_id}/status", response_model=OrderOut, summary="Сменить статус заказа")
