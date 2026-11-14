@@ -18,6 +18,7 @@
 | A-5 | CI: lint + тесты бэкенда, сборка фронта | P1 | done | GitHub Actions |
 | A-6 | Alembic-миграции вместо `create_all` | P0 | done | Начальная ревизия, проверка ревизии на старте, тест на расхождение миграций с моделями. `docs/06-migrations.md` |
 | A-7 | Docker-образы backend/frontend + прод-compose | P2 | todo | |
+| A-8 | Обновить версии GitHub Actions | P2 | todo | `checkout@v4` и `setup-node@v4` живут на Node 20, его на раннерах объявили устаревшим — сборка проходит, но с предупреждением |
 
 ## Эпик B. Модель данных и справочники
 
