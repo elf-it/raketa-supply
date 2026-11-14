@@ -131,6 +131,17 @@ export const api = {
     return request<Matrix>(`/matrix?${params.toString()}`);
   },
 
+  /**
+   * Одна строка матрицы — ответ на правку ячейки.
+   *
+   * Формат тот же, что у матрицы, но строк в нём не больше одной; итоги, KPI
+   * и счётчики — по всей выборке, как обычно. Пустой список строк означает, что
+   * позиция из выборки выпала: правка изменила её статус, а на экране включён
+   * отбор по статусу. Тогда экран перечитывает выборку целиком.
+   */
+  matrixRow: (filters: MatrixFilters, pairId: number) =>
+    request<Matrix>(`/matrix/row?pair_id=${pairId}&${query(filters)}`),
+
   purchase: (filters: Omit<MatrixFilters, 'level'>, onlyNeeded: boolean) =>
     request<PurchasePlan>(`/purchase?only_needed=${onlyNeeded}&${query(filters)}`),
 

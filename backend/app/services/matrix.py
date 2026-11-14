@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -124,6 +125,28 @@ def _window(items: list, offset: int, limit: int | None) -> list:
     if limit is None:
         return items[offset:]
     return items[offset : offset + limit]
+
+
+def _pick_rows(
+    items: list,
+    offset: int,
+    limit: int | None,
+    holds_pair: Callable[[object], bool] | None,
+) -> tuple[list, int]:
+    """Какие строки попадут в ответ — и с какого места выборки они начинаются.
+
+    Обычно это окно по ``offset`` и ``limit``. Если задан ``holds_pair``, просят
+    одну строку — ту, в которой живёт пара; вместе с ней возвращается её место
+    в выборке, потому что экрану нужно знать не только что в строке, но и на какую
+    строку её класть. Пары в выборке нет — список пустой: при отборе по статусу
+    правка может вытолкнуть строку из выборки, и это не ошибка.
+    """
+    if holds_pair is None:
+        return _window(items, offset, limit), offset
+    for index, item in enumerate(items):
+        if holds_pair(item):
+            return [item], index
+    return [], 0
 
 
 # --------------------------------------------------------------------------- настройки
@@ -434,6 +457,7 @@ def build_matrix(
     status: Status | None = None,
     offset: int = 0,
     limit: int | None = None,
+    pair_id: int | None = None,
 ) -> Matrix:
     """Матрица по уровню просмотра.
 
@@ -448,6 +472,12 @@ def build_matrix(
     с тем, что над ним, стоило прокрутить страницу. ``limit=None`` отдаёт выборку
     целиком — так работают выгрузка в XLSX и тесты; окно задаёт клиент, а не сервер:
     сервер обязан уметь отдать всё, экран — не обязан всё просить.
+
+    ``pair_id`` заменяет окно строк одной строкой — той, в которой живёт эта пара
+    (на уровне групп это строка её магазина или категории). Так отвечают на правку
+    ячейки: пересчиталась одна позиция, и перечитывать ради неё всё загруженное
+    незачем. Итоги, KPI и счётчики при этом считаются как обычно, по всей выборке, —
+    правка меняет и их.
 
     Ряды собираются по всем парам выборки, а не только по окну: без них не
     посчитать ни итоги, ни отбор по статусу. Зато посчитаны они будут не заново —
@@ -469,6 +499,9 @@ def build_matrix(
     if level is Level.SKU:
         shown = [pair for pair in pairs if status is None or results[pair.id].status is status]
         row_count = len(shown)
+        window, offset = _pick_rows(
+            shown, offset, limit, None if pair_id is None else lambda pair: pair.id == pair_id
+        )
         rows = [
             Row(
                 key=f"pair-{pair.id}",
@@ -489,7 +522,7 @@ def build_matrix(
                 },
                 metrics=_row_metrics(results[pair.id], weeks),
             )
-            for pair in _window(shown, offset, limit)
+            for pair in window
         ]
     else:
         groups: dict[tuple, list[Pair]] = defaultdict(list)
@@ -509,6 +542,12 @@ def build_matrix(
             visible.append((key, title, group, agg))
         row_count = len(visible)
         shown = [pair for _, _, group, _ in visible for pair in group]
+        window, offset = _pick_rows(
+            visible,
+            offset,
+            limit,
+            None if pair_id is None else lambda item: any(p.id == pair_id for p in item[2]),
+        )
         rows = [
             Row(
                 key=f"{level.value}-{key}",
@@ -522,7 +561,7 @@ def build_matrix(
                 },
                 metrics=_row_metrics(agg, weeks),
             )
-            for key, title, group, agg in _window(visible, offset, limit)
+            for key, title, group, agg in window
         ]
 
     # Итоги и KPI считаются по показанным строкам: отбор по статусу — такая же выборка,
@@ -556,7 +595,7 @@ def build_matrix(
             #: Окно строк: сколько их в выборке и какой кусок отдан.
             "row_count": row_count,
             "row_offset": offset,
-            "row_limit": limit,
+            "row_limit": len(rows) if pair_id is not None else limit,
             #: Пары всей выборки, а не только окна. По этому списку работают
             #: «отметить все» и массовая правка: иначе правка «ко всем строкам»
             #: молча накрыла бы одну подгруженную страницу. Это идентификаторы,

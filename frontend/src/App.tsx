@@ -195,6 +195,57 @@ export default function App() {
     setMatrix(fresh);
   }, [filters]);
 
+  /**
+   * Обновляет одну строку после правки её ячейки.
+   *
+   * Правка меняет сток, статус и покрытие только у своей позиции — пары
+   * независимы друг от друга, — а вот итоги и KPI считаются по всей выборке
+   * и меняются тоже. Сервер присылает ровно это: строку, итоги, KPI и счётчики.
+   * Перечитывать ради одной строки всё загруженное незачем: на четырёх страницах
+   * это мегабайты на каждое нажатие.
+   *
+   * Перечитать всё приходится в трёх случаях, и все три видны по ответу: строки
+   * в нём нет (отбор по статусу вытолкнул её из выборки, и за ней сдвинулись
+   * остальные), строка стоит не на том месте, где она на экране, или сменилась
+   * ось недель — например, кто-то закрыл неделю, пока мы правили.
+   */
+  const refreshRow = useCallback(
+    async (pairId: number) => {
+      const seq = ++requestSeq.current;
+      const fresh = await api.matrixRow(filters, pairId);
+      if (seq !== requestSeq.current) return;
+      const updated = fresh.rows[0];
+      const index = matrix && updated ? matrix.rows.findIndex((r) => r.key === updated.key) : -1;
+      const sameAxis =
+        matrix !== null &&
+        fresh.weeks.length === matrix.weeks.length &&
+        fresh.weeks[0]?.key === matrix.weeks[0]?.key;
+      if (!updated || index < 0 || index !== fresh.context.row_offset || !sameAxis) {
+        await refresh();
+        return;
+      }
+      setMatrix((prev) => {
+        if (!prev) return prev;
+        const rows = [...prev.rows];
+        rows[index] = updated;
+        return {
+          ...prev,
+          rows,
+          totals: fresh.totals,
+          kpi: fresh.kpi,
+          // Счётчики и список пар — из свежего ответа, окно строк — прежнее:
+          // на экране по-прежнему те же страницы, что и были.
+          context: {
+            ...fresh.context,
+            row_offset: prev.context.row_offset,
+            row_limit: prev.context.row_limit,
+          },
+        };
+      });
+    },
+    [filters, matrix, refresh],
+  );
+
   /** Следующая страница строк: её просит таблица, когда прокрутка подошла к концу. */
   const loadMore = useCallback(async () => {
     if (moreBusy.current || !matrix) return;
@@ -341,9 +392,9 @@ export default function App() {
           week,
           value === null ? { clear: [field] } : { [field]: value },
         );
-        // Изменение прогноза пересчитывает остатки и закупку — перечитываем
-        // всё загруженное: правка меняет и итоги под таблицей.
-        await refresh();
+        // Изменение прогноза пересчитывает остатки, статус и итоги, но только
+        // у этой позиции: обновляем её строку, а не всё загруженное.
+        await refreshRow(pairId);
         setError(null);
       } catch (err) {
         setError((err as Error).message);
@@ -355,7 +406,7 @@ export default function App() {
         });
       }
     },
-    [refresh],
+    [refreshRow],
   );
 
   const signOut = async () => {

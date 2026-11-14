@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from ..calc import Level, Status
 from ..db import get_session
+from ..models import StoreProduct
 from ..schemas import MatrixOut
 from ..services.matrix import MatrixFilters, build_matrix
 from ..services.matrix_export import build_matrix_workbook, matrix_filename
@@ -42,6 +43,57 @@ def get_matrix(
         status=row_status,
         offset=offset,
         limit=limit,
+    )
+    return MatrixOut(
+        level=matrix.level,
+        weeks=matrix.weeks,  # type: ignore[arg-type]
+        rows=matrix.rows,  # type: ignore[arg-type]
+        totals=matrix.totals,  # type: ignore[arg-type]
+        kpi=matrix.kpi,  # type: ignore[arg-type]
+        context=matrix.context,
+    )
+
+
+@router.get("/row", response_model=MatrixOut, summary="Одна строка матрицы с итогами")
+def get_matrix_row(
+    pair_id: int = Query(..., description="Позиция, строку которой нужно пересчитать"),
+    level: Level = Query(Level.SKU, description="Уровень: store, category, sku"),
+    store_id: int | None = Query(None),
+    category_id: int | None = Query(None),
+    product_id: int | None = Query(None),
+    search: str | None = Query(None),
+    row_status: Status | None = Query(None, alias="status"),
+    session: Session = Depends(get_session),
+) -> MatrixOut:
+    """Ответ на правку ячейки: строка этой позиции, итоги, KPI и счётчики.
+
+    Правка пересчитывает одну позицию — пары независимы друг от друга, — но
+    меняет и итоги под таблицей, и KPI над ней. Поэтому отдаётся та же матрица
+    с теми же фильтрами, только в окне строк ровно одна: загруженные страницы
+    на тысяче позиций весят мегабайты, и перечитывать их ради одной строки
+    незачем (задача G-11).
+
+    ``rows`` приходит пустым, если позиции в выборке нет: при отборе по статусу
+    правка может вытолкнуть строку из выборки, и за ней сдвигаются остальные —
+    тогда экран перечитывает выборку целиком. Несуществующая позиция — другой
+    случай, это 404.
+
+    На уровнях магазинов и категорий отдаётся строка группы, в которую входит
+    позиция, — та, что на экране и меняется.
+    """
+    if session.get(StoreProduct, pair_id) is None:
+        raise HTTPException(status_code=404, detail="позиция не найдена")
+    matrix = build_matrix(
+        session,
+        level,
+        MatrixFilters(
+            store_id=store_id,
+            category_id=category_id,
+            product_id=product_id,
+            search=search,
+        ),
+        status=row_status,
+        pair_id=pair_id,
     )
     return MatrixOut(
         level=matrix.level,
