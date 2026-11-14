@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 
 import type { Level, Row, Week } from '../types';
 import { EditableCell } from './EditableCell';
+import { SERIES_COLORS } from './RowChart';
 import { StatusBadge } from './StatusBadge';
 
 /** Строка показателя внутри блока позиции. */
@@ -65,8 +66,11 @@ interface Props {
   onToggleAll: () => void;
   /** Роль «просмотр» видит те же числа, но ничего не правит. */
   canEdit: boolean;
-  /** Строка, по которой показан график; выбирается щелчком по названию. */
-  chartRowKey: string | null;
+  /**
+   * Строки, показанные на графике, в порядке добавления: щелчок по названию
+   * добавляет строку и убирает обратно. Порядок задаёт цвет линии при сравнении.
+   */
+  chartKeys: string[];
   onPickRow: (key: string) => void;
 }
 
@@ -82,9 +86,16 @@ export function WeekMatrix({
   onToggleRow,
   onToggleAll,
   canEdit,
-  chartRowKey,
+  chartKeys,
   onPickRow,
 }: Props) {
+  // Цвет строки появляется только при сравнении: на графике одной строки цветная
+  // точка в таблице обозначала бы линию, которой там нет.
+  const chartColor = (key: string) => {
+    const index = chartKeys.indexOf(key);
+    return index >= 0 && chartKeys.length > 1 ? SERIES_COLORS[index] : null;
+  };
+
   const months = useMemo(() => monthSpans(weeks), [weeks]);
   const metrics =
     level === 'sku'
@@ -157,7 +168,8 @@ export function WeekMatrix({
               }
               onToggleRow={onToggleRow}
               canEdit={canEdit}
-              charted={chartRowKey === row.key}
+              charted={chartKeys.includes(row.key)}
+              chartColor={chartColor(row.key)}
               onPick={() => onPickRow(row.key)}
             />
           ))}
@@ -170,8 +182,11 @@ export function WeekMatrix({
           )}
         </tbody>
         <tfoot>
-          <tr className={`totals ${chartRowKey === totals.key ? 'charted' : ''}`}>
+          <tr className={`totals ${chartKeys.includes(totals.key) ? 'charted' : ''}`}>
             <th className="col-name">
+              {chartColor(totals.key) && (
+                <span className="swatch line" style={{ background: chartColor(totals.key) ?? '' }} />
+              )}
               <button
                 className="row-title pick"
                 onClick={() => onPickRow(totals.key)}
@@ -204,6 +219,8 @@ interface RowBlockProps {
   onToggleRow: (pairId: number) => void;
   canEdit: boolean;
   charted: boolean;
+  /** Цвет линии этой строки на графике сравнения; `null` — строка не сравнивается. */
+  chartColor: string | null;
   onPick: () => void;
 }
 
@@ -218,6 +235,7 @@ function RowBlock({
   onToggleRow,
   canEdit,
   charted,
+  chartColor,
   onPick,
 }: RowBlockProps) {
   const editable =
@@ -244,7 +262,12 @@ function RowBlock({
                   onChange={() => onToggleRow(row.meta.pair_id as number)}
                 />
               )}
-              <button className="row-title pick" onClick={onPick} title="Показать график">
+              {chartColor && <span className="swatch line" style={{ background: chartColor }} />}
+              <button
+                className="row-title pick"
+                onClick={onPick}
+                title={charted ? 'Убрать строку с графика' : 'Показать на графике'}
+              >
                 {row.title}
               </button>
               {row.subtitle && <div className="row-subtitle">{row.subtitle}</div>}

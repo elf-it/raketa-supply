@@ -8,7 +8,7 @@ import { KpiBar } from './components/KpiBar';
 import { LoginPage } from './components/LoginPage';
 import { OrdersPage } from './components/OrdersPage';
 import { PurchasePanel } from './components/PurchasePanel';
-import { RowChart } from './components/RowChart';
+import { MAX_CHART_ROWS, RowChart } from './components/RowChart';
 import { SeasonalityPage } from './components/SeasonalityPage';
 import { GROUP_METRICS, WeekMatrix } from './components/WeekMatrix';
 import type {
@@ -20,6 +20,7 @@ import type {
   PurchasePlan,
   PurchaseRow,
   Role,
+  Row,
   Status,
   Store,
 } from './types';
@@ -80,7 +81,8 @@ export default function App() {
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
   const [selectedPairs, setSelectedPairs] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [chartRowKey, setChartRowKey] = useState<string | null>(null);
+  const [chartKeys, setChartKeys] = useState<string[]>([]);
+  const [chartNotice, setChartNotice] = useState<string | null>(null);
   const [onlyNeeded, setOnlyNeeded] = useState(true);
   const [creatingOrder, setCreatingOrder] = useState(false);
 
@@ -154,16 +156,44 @@ export default function App() {
   // Отметки относятся к конкретной выборке строк: при смене фильтров они бессмысленны.
   useEffect(() => {
     setSelectedPairs(new Set());
-    setChartRowKey(null);
+    setChartKeys([]);
+    setChartNotice(null);
   }, [pageFilters, level, rowStatus]);
 
-  // График живёт на строке текущей матрицы, а не на своей копии данных: после правки
+  // График живёт на строках текущей матрицы, а не на своей копии данных: после правки
   // прогноза матрица перечитывается, и график перерисовывается тем же числам.
-  const chartRow = useMemo(() => {
-    if (!matrix || !chartRowKey) return null;
-    if (chartRowKey === matrix.totals.key) return matrix.totals;
-    return matrix.rows.find((row) => row.key === chartRowKey) ?? null;
-  }, [matrix, chartRowKey]);
+  // Ключи, которых в новой выборке нет, просто выпадают — отдельной чистки не нужно.
+  const chartRows = useMemo(() => {
+    if (!matrix) return [];
+    const byKey = new Map([matrix.totals, ...matrix.rows].map((row) => [row.key, row]));
+    return chartKeys.map((key) => byKey.get(key)).filter((row): row is Row => row !== undefined);
+  }, [matrix, chartKeys]);
+
+  /**
+   * Щелчок по названию строки добавляет её на график и убирает обратно. Отдельного
+   * режима сравнения нет: одна строка — разбор позиции, несколько — сравнение.
+   */
+  const pickRow = useCallback(
+    (key: string) => {
+      if (chartKeys.includes(key)) {
+        setChartNotice(null);
+        setChartKeys(chartKeys.filter((item) => item !== key));
+        return;
+      }
+      if (chartKeys.length >= MAX_CHART_ROWS) {
+        // Это не ошибка запроса, поэтому и не в общую полосу ошибок: сообщение
+        // живёт у графика, рядом со строками, одну из которых нужно снять.
+        setChartNotice(
+          `На графике помещается ${MAX_CHART_ROWS} строки: снимите лишнюю, ` +
+            'чтобы добавить новую',
+        );
+        return;
+      }
+      setChartNotice(null);
+      setChartKeys([...chartKeys, key]);
+    },
+    [chartKeys],
+  );
 
   const skuRowIds = useMemo(
     () =>
@@ -433,11 +463,16 @@ export default function App() {
             />
           )}
 
-          {chartRow && (
+          {chartRows.length > 0 && (
             <RowChart
-              row={chartRow}
+              rows={chartRows}
               weeks={matrix.weeks}
-              onClose={() => setChartRowKey(null)}
+              notice={chartNotice}
+              onRemove={pickRow}
+              onClose={() => {
+                setChartNotice(null);
+                setChartKeys([]);
+              }}
             />
           )}
 
@@ -453,12 +488,13 @@ export default function App() {
             onToggleRow={toggleRow}
             onToggleAll={toggleAll}
             canEdit={canEdit}
-            chartRowKey={chartRowKey}
-            onPickRow={(key) => setChartRowKey((prev) => (prev === key ? null : key))}
+            chartKeys={chartKeys}
+            onPickRow={pickRow}
           />
 
           <p className="footnote">
-            Щелчок по названию строки или по итогу открывает график спроса и стока.
+            Щелчок по названию строки или по итогу открывает график спроса и стока,
+            следующий щелчок по другой строке добавляет её на тот же график для сравнения.
             Новый прогноз редактируется в таблице, после закрытия недели он фиксируется как её план.
             Исходный спрос не обнуляется из-за дефицита: обрезается только адаптированный прогноз.
           </p>
