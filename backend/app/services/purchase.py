@@ -30,6 +30,7 @@ class PurchaseRow:
     title: str
     category: str | None
     supplier: str | None
+    supplier_id: int | None
     suggestion: PurchaseSuggestion
     params: PurchaseParams
     current_stock: float
@@ -125,6 +126,7 @@ def build_purchase_plan(
                 supplier=suppliers[product.supplier_id].name
                 if product.supplier_id in suppliers
                 else None,
+                supplier_id=product.supplier_id,
                 suggestion=suggestion,
                 params=params,
                 current_stock=current_stock,

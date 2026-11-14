@@ -22,6 +22,7 @@ def _to_out(row: PurchaseRow) -> PurchaseRowOut:
         title=row.title,
         category=row.category,
         supplier=row.supplier,
+        supplier_id=row.supplier_id,
         current_stock=row.current_stock,
         needed=s.needed,
         shortage_week=s.shortage_week,

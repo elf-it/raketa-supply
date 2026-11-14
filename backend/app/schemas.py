@@ -251,6 +251,9 @@ class PurchaseRowOut(BaseModel_):
     title: str
     category: str | None = None
     supplier: str | None = None
+    #: Нужен экрану, чтобы сопоставить позицию с черновиком того же поставщика:
+    #: по названию такое сопоставление сломали бы два тёзки в справочнике.
+    supplier_id: int | None = None
     current_stock: float
     needed: bool
     shortage_week: str | None = None
@@ -324,6 +327,7 @@ class OrderOut(BaseModel_):
     status: OrderStatus
     status_label: str
     supplier: str | None = None
+    supplier_id: int | None = None
     note: str | None = None
     created_at: UtcDatetime
     created_by: str | None = None

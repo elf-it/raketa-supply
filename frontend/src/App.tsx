@@ -19,6 +19,7 @@ import type {
   CurrentUser,
   Level,
   Matrix,
+  Order,
   PurchasePlan,
   PurchaseRow,
   Role,
@@ -99,7 +100,9 @@ export default function App() {
   const [chartKeys, setChartKeys] = useState<string[]>([]);
   const [chartNotice, setChartNotice] = useState<string | null>(null);
   const [onlyNeeded, setOnlyNeeded] = useState(true);
-  const [creatingOrder, setCreatingOrder] = useState(false);
+  const [orderBusy, setOrderBusy] = useState(false);
+  /** Черновики: только в них можно дописать позицию, которую забыли при сборке. */
+  const [drafts, setDrafts] = useState<Order[]>([]);
 
   /** Сколько строк матрицы уже загружено: страницы идут подряд от начала выборки. */
   const loadedRows = useRef(0);
@@ -361,8 +364,32 @@ export default function App() {
     [refresh],
   );
 
+  /**
+   * Черновики для экрана закупки.
+   *
+   * Дописать позицию можно только в черновик, и экран должен знать его состав:
+   * позиция, которая в нём уже есть, вторым экземпляром не добавляется. Список
+   * короткий — черновик живёт до размещения, — поэтому читается целиком
+   * и перечитывается после каждого добавления.
+   */
+  const loadDrafts = useCallback(async () => {
+    if (!user || !canEdit) {
+      setDrafts([]);
+      return;
+    }
+    try {
+      setDrafts(await api.orders('draft'));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, [canEdit, user]);
+
+  useEffect(() => {
+    if (tab === 'purchase') void loadDrafts();
+  }, [tab, loadDrafts]);
+
   const createOrder = useCallback(async (rows: PurchaseRow[]) => {
-    setCreatingOrder(true);
+    setOrderBusy(true);
     try {
       await api.createOrder({
         lines: rows.map((row) => ({
@@ -377,9 +404,36 @@ export default function App() {
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setCreatingOrder(false);
+      setOrderBusy(false);
     }
   }, []);
+
+  /**
+   * Дописывает позицию в существующий черновик.
+   *
+   * Закупочную потребность это не меняет: черновик расчёту не виден, пока его
+   * не разместили. А вот состав черновика меняется, и экран его перечитывает —
+   * иначе кнопка предлагала бы добавить то, что уже добавлено.
+   */
+  const addToDraft = useCallback(
+    async (orderId: number, row: PurchaseRow) => {
+      setOrderBusy(true);
+      try {
+        await api.addOrderLine(orderId, {
+          pair_id: row.pair_id,
+          qty: row.qty,
+          arrival_week: row.arrival_week ?? '',
+        });
+        await loadDrafts();
+        setError(null);
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
+        setOrderBusy(false);
+      }
+    },
+    [loadDrafts],
+  );
 
   const handleEdit = useCallback(
     async (pairId: number, week: string, field: string, value: number | null) => {
@@ -647,7 +701,9 @@ export default function App() {
           onOnlyNeededChange={setOnlyNeeded}
           canEdit={canEdit}
           onCreateOrder={(rows) => void createOrder(rows)}
-          creatingOrder={creatingOrder}
+          drafts={drafts}
+          onAddToDraft={(orderId, row) => void addToDraft(orderId, row)}
+          orderBusy={orderBusy}
         />
       )}
 

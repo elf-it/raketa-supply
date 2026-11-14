@@ -205,6 +205,7 @@ def test_purchase_export_explains_a_position_without_an_order():
         title="Товар без потребности",
         category="Проверка",
         supplier="Поставщик",
+        supplier_id=1,
         suggestion=PurchaseSuggestion(needed=False, reason="остатков хватает на весь горизонт"),
         params=PurchaseParams(),
         current_stock=120.0,

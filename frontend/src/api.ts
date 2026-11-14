@@ -217,6 +217,15 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  addOrderLine: (
+    orderId: number,
+    line: { pair_id: number; qty: number; arrival_week: string },
+  ) =>
+    request<Order>(`/orders/${orderId}/lines`, {
+      method: 'POST',
+      body: JSON.stringify(line),
+    }),
+
   deleteOrderLine: (orderId: number, lineId: number) =>
     request<Order>(`/orders/${orderId}/lines/${lineId}`, { method: 'DELETE' }),
 

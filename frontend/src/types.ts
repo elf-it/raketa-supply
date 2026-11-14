@@ -110,6 +110,8 @@ export interface PurchaseRow {
   title: string;
   category: string | null;
   supplier: string | null;
+  /** По нему позиция сопоставляется с черновиком: тёзки в справочнике не помеха. */
+  supplier_id: number | null;
   current_stock: number;
   needed: boolean;
   shortage_week: string | null;
@@ -167,6 +169,7 @@ export interface Order {
   status: OrderStatus;
   status_label: string;
   supplier: string | null;
+  supplier_id: number | null;
   note: string | null;
   created_at: string;
   created_by: string | null;

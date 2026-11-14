@@ -8,6 +8,7 @@ from ..db import get_session
 from ..models import OrderStatus, PurchaseOrder, User
 from ..schemas import (
     OrderIn,
+    OrderLineIn,
     OrderLineOut,
     OrderLinePatchIn,
     OrderNoteIn,
@@ -42,6 +43,7 @@ def _to_out(order: PurchaseOrder, with_lines: bool = True) -> OrderOut:
         status=order.status,
         status_label=service.STATUS_LABELS[order.status],
         supplier=order.supplier.name if order.supplier else None,
+        supplier_id=order.supplier_id,
         note=order.note,
         created_at=order.created_at,
         created_by=order.created_by.display_name if order.created_by else None,
@@ -126,6 +128,33 @@ def export_order(order_id: int, session: Session = Depends(get_session)) -> Resp
     return xlsx_response(
         build_order_workbook(order), order_filename(order), f"order-{order.id}.xlsx"
     )
+
+
+@router.post(
+    "/{order_id}/lines",
+    response_model=OrderOut,
+    status_code=http_status.HTTP_201_CREATED,
+    summary="Добавить позицию в черновик",
+)
+def add_line(
+    order_id: int,
+    payload: OrderLineIn,
+    session: Session = Depends(get_session),
+    user: User = Depends(require_editor),
+) -> OrderOut:
+    """Дописывает позицию в черновик. Товар должен быть того же поставщика."""
+    order = _order_or_404(session, order_id)
+    try:
+        order = service.add_line(
+            session,
+            order,
+            service.OrderLineInput(
+                pair_id=payload.pair_id, qty=payload.qty, arrival_week=payload.arrival_week
+            ),
+        )
+    except service.OrderError as error:
+        raise _as_http(error) from error
+    return _to_out(order)
 
 
 @router.patch(

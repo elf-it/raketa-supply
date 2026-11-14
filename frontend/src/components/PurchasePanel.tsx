@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import type { PurchasePlan, PurchaseRow } from '../types';
+import type { Order, PurchasePlan, PurchaseRow } from '../types';
 
 const numberFormat = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 const moneyFormat = new Intl.NumberFormat('ru-RU', {
@@ -87,9 +87,13 @@ interface Props {
   onlyNeeded: boolean;
   onOnlyNeededChange: (value: boolean) => void;
   canEdit: boolean;
-  /** Собирает черновик заказа из строк группы; занят — пока уходит запрос. */
+  /** Собирает черновик заказа из строк группы. */
   onCreateOrder: (rows: PurchaseRow[]) => void;
-  creatingOrder: boolean;
+  /** Незакрытые черновики: в них дописывается позиция, забытая при сборке. */
+  drafts: Order[];
+  onAddToDraft: (orderId: number, row: PurchaseRow) => void;
+  /** Запрос по заказу в полёте: кнопки заказа на время ответа заперты. */
+  orderBusy: boolean;
 }
 
 export function PurchasePanel({
@@ -99,13 +103,27 @@ export function PurchasePanel({
   onOnlyNeededChange,
   canEdit,
   onCreateOrder,
-  creatingOrder,
+  drafts,
+  onAddToDraft,
+  orderBusy,
 }: Props) {
   const [grouped, setGrouped] = useState(true);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const groups = useMemo(() => groupBySupplier(plan.rows), [plan.rows]);
+  // Черновики раскладываются по поставщику: заказ уходит поставщику целиком,
+  // поэтому позиции предлагаются только его черновики. Сопоставление по
+  // идентификатору, а не по названию — тёзки в справочнике не помеха.
+  const draftsBySupplier = useMemo(() => {
+    const map = new Map<number | null, Order[]>();
+    for (const order of [...drafts].sort((a, b) => b.id - a.id)) {
+      const list = map.get(order.supplier_id);
+      if (list) list.push(order);
+      else map.set(order.supplier_id, [order]);
+    }
+    return map;
+  }, [drafts]);
   const flat = useMemo(
     () =>
       [...plan.rows].sort((a, b) =>
@@ -131,6 +149,17 @@ export function PurchasePanel({
     });
 
   const columns = 8;
+
+  /** Общие для обоих режимов свойства строки: группировка их не меняет. */
+  const rowProps = (row: PurchaseRow) => ({
+    row,
+    expanded: expanded.has(row.pair_id),
+    onToggle: () => toggleRow(row.pair_id),
+    columns,
+    drafts: canEdit ? (draftsBySupplier.get(row.supplier_id) ?? []) : [],
+    onAddToDraft,
+    orderBusy,
+  });
 
   return (
     <section className="panel">
@@ -233,7 +262,7 @@ export function PurchasePanel({
                     {canEdit && group.rows.some((row) => row.needed) && (
                       <button
                         className="small group-order"
-                        disabled={creatingOrder}
+                        disabled={orderBusy}
                         onClick={() => onCreateOrder(group.rows.filter((row) => row.needed))}
                       >
                         Сформировать заказ
@@ -246,27 +275,13 @@ export function PurchasePanel({
                   <td />
                 </tr>
                 {!collapsed.has(group.supplier) &&
-                  group.rows.map((row) => (
-                    <PurchaseRows
-                      key={row.pair_id}
-                      row={row}
-                      expanded={expanded.has(row.pair_id)}
-                      onToggle={() => toggleRow(row.pair_id)}
-                      columns={columns}
-                    />
-                  ))}
+                  group.rows.map((row) => <PurchaseRows key={row.pair_id} {...rowProps(row)} />)}
               </tbody>
             ))
           ) : (
             <tbody>
               {flat.map((row) => (
-                <PurchaseRows
-                  key={row.pair_id}
-                  row={row}
-                  expanded={expanded.has(row.pair_id)}
-                  onToggle={() => toggleRow(row.pair_id)}
-                  columns={columns}
-                />
+                <PurchaseRows key={row.pair_id} {...rowProps(row)} />
               ))}
             </tbody>
           )}
@@ -292,9 +307,21 @@ interface RowProps {
   expanded: boolean;
   onToggle: () => void;
   columns: number;
+  /** Черновики этого же поставщика; пусто — добавлять некуда или нельзя. */
+  drafts: Order[];
+  onAddToDraft: (orderId: number, row: PurchaseRow) => void;
+  orderBusy: boolean;
 }
 
-function PurchaseRows({ row, expanded, onToggle, columns }: RowProps) {
+function PurchaseRows({
+  row,
+  expanded,
+  onToggle,
+  columns,
+  drafts,
+  onAddToDraft,
+  orderBusy,
+}: RowProps) {
   const mark = urgency(row);
   const rounded = row.needed && row.qty !== Math.round(row.qty_before_constraints);
 
@@ -310,6 +337,9 @@ function PurchaseRows({ row, expanded, onToggle, columns }: RowProps) {
           <button className="link small" onClick={onToggle} aria-expanded={expanded}>
             {expanded ? 'свернуть разбор' : 'разбор количества'}
           </button>
+          {row.needed && row.arrival_week && drafts.length > 0 && (
+            <AddToDraft row={row} drafts={drafts} busy={orderBusy} onAdd={onAddToDraft} />
+          )}
         </td>
         <td className="num">{qty(row.current_stock)}</td>
         <td>{row.shortage_week ?? '—'}</td>
@@ -335,6 +365,71 @@ function PurchaseRows({ row, expanded, onToggle, columns }: RowProps) {
         </tr>
       )}
     </>
+  );
+}
+
+interface AddProps {
+  row: PurchaseRow;
+  /** Только черновики того же поставщика, новые сверху. */
+  drafts: Order[];
+  busy: boolean;
+  onAdd: (orderId: number, row: PurchaseRow) => void;
+}
+
+/**
+ * Дописать позицию в черновик.
+ *
+ * Черновики, в которых эта позиция уже стоит, предлагать нечего: второй строки
+ * той же позиции сервер не примет, и правильный ответ на «хочу больше» —
+ * поправить количество в самом заказе. Поэтому такие черновики здесь только
+ * названы: иначе человек не понял бы, куда делась кнопка.
+ */
+function AddToDraft({ row, drafts, busy, onAdd }: AddProps) {
+  const [picked, setPicked] = useState<number | null>(null);
+
+  const has = (order: Order) => order.lines.some((line) => line.pair_id === row.pair_id);
+  const already = drafts.filter(has);
+  const open = drafts.filter((order) => !has(order));
+
+  if (open.length === 0) {
+    return (
+      <span className="draft-note">
+        уже в черновике {already.map((order) => `№${order.id}`).join(', ')}
+      </span>
+    );
+  }
+
+  const target = open.find((order) => order.id === picked) ?? open[0];
+  return (
+    <span className="add-to-draft">
+      {open.length > 1 && (
+        <select
+          value={target.id}
+          disabled={busy}
+          aria-label="Черновик, в который добавить позицию"
+          onChange={(event) => setPicked(Number(event.target.value))}
+        >
+          {open.map((order) => (
+            <option key={order.id} value={order.id}>
+              № {order.id} · {order.lines_count} поз.
+            </option>
+          ))}
+        </select>
+      )}
+      <button
+        className="small"
+        disabled={busy}
+        title={`Дописать ${qty(row.qty)} шт. с приходом ${row.arrival_week} в черновик № ${target.id}`}
+        onClick={() => onAdd(target.id, row)}
+      >
+        {open.length > 1 ? 'добавить' : `в черновик № ${target.id}`}
+      </button>
+      {already.length > 0 && (
+        <span className="draft-note">
+          уже в {already.map((order) => `№${order.id}`).join(', ')}
+        </span>
+      )}
+    </span>
   );
 }
 

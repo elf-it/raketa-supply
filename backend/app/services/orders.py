@@ -30,6 +30,7 @@ from ..models import (
     PurchaseOrder,
     PurchaseOrderLine,
     StoreProduct,
+    Supplier,
     Supply,
     SupplyStatus,
     User,
@@ -97,6 +98,23 @@ def check_arrival_week(session: Session, week: str, today: date | None = None) -
         )
 
 
+def _new_line(line: OrderLineInput, product: Product) -> PurchaseOrderLine:
+    """Строка заказа со снимком карточки товара.
+
+    Цена и объём записываются в строку, а не берутся из карточки при чтении:
+    заказ — документ, и его сумма не должна меняться задним числом вслед
+    за переоценкой. Снимок снимается на момент, когда строка попала в документ,
+    поэтому дописанная позиция может нести цену новее, чем остальные строки.
+    """
+    return PurchaseOrderLine(
+        store_product_id=line.pair_id,
+        qty=line.qty,
+        arrival_week=line.arrival_week,
+        cost_price=product.cost_price,
+        volume_m3=product.volume_m3,
+    )
+
+
 def create_order(
     session: Session,
     lines: list[OrderLineInput],
@@ -144,16 +162,7 @@ def create_order(
         created_by_id=author.id if author else None,
     )
     for line in lines:
-        product = products[pairs[line.pair_id].product_id]
-        order.lines.append(
-            PurchaseOrderLine(
-                store_product_id=line.pair_id,
-                qty=line.qty,
-                arrival_week=line.arrival_week,
-                cost_price=product.cost_price,
-                volume_m3=product.volume_m3,
-            )
-        )
+        order.lines.append(_new_line(line, products[pairs[line.pair_id].product_id]))
     session.add(order)
     session.commit()
     session.refresh(order)
@@ -221,6 +230,60 @@ def _line(order: PurchaseOrder, line_id: int) -> PurchaseOrderLine:
     if line is None:
         raise OrderLineNotFound(f"В заказе №{order.id} нет строки {line_id}")
     return line
+
+
+def _supplier_name(session: Session, supplier_id: int | None) -> str:
+    if supplier_id is None:
+        return "без поставщика"
+    supplier = session.get(Supplier, supplier_id)
+    return supplier.name if supplier else f"№{supplier_id}"
+
+
+def add_line(
+    session: Session,
+    order: PurchaseOrder,
+    line: OrderLineInput,
+    today: date | None = None,
+) -> PurchaseOrder:
+    """Дописывает позицию в черновик.
+
+    Забытую позицию раньше приходилось заказывать вторым документом тому же
+    поставщику: два заказа, две выгрузки, два разговора о доставке. Поэтому
+    дописать можно, но только в черновик и только товар того же поставщика —
+    заказ уходит поставщику целиком, и смешанный документ нельзя ни отправить,
+    ни принять как единое целое.
+    """
+    _require_draft(order, "Добавлять строки")
+    if line.qty <= 0:
+        raise OrderError("Количество в строке заказа должно быть положительным")
+    check_arrival_week(session, line.arrival_week, today)
+
+    if any(item.store_product_id == line.pair_id for item in order.lines):
+        # Складывать количество молча нельзя: человек не узнал бы, что строка
+        # уже была, и заказал бы вдвое больше задуманного.
+        raise OrderError(
+            f"Эта позиция уже есть в заказе №{order.id} — "
+            "измените количество в её строке, а не добавляйте вторую"
+        )
+
+    pair = session.get(StoreProduct, line.pair_id)
+    if pair is None:
+        raise OrderError(f"Позиции не найдены: [{line.pair_id}]")
+    product = session.get(Product, pair.product_id)
+    if product is None:
+        raise OrderError(f"Позиции не найдены: [{line.pair_id}]")
+    if product.supplier_id != order.supplier_id:
+        raise OrderError(
+            f"Товар «{product.title}» — поставщик "
+            f"{_supplier_name(session, product.supplier_id)}, "
+            f"а заказ №{order.id} собран поставщику "
+            f"{_supplier_name(session, order.supplier_id)}"
+        )
+
+    order.lines.append(_new_line(line, product))
+    session.commit()
+    session.refresh(order)
+    return order
 
 
 def update_line(
