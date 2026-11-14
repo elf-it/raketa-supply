@@ -395,11 +395,67 @@ interface Series {
   stockPeak: number;
 }
 
+/** Как строки приводятся друг к другу на сравнении. */
+type ScaleMode = 'units' | 'axes' | 'share';
+
+const SCALE_MODES: { id: ScaleMode; label: string; hint: string }[] = [
+  {
+    id: 'units',
+    label: 'Общая шкала',
+    hint: 'Все строки в штуках на одной шкале: видно разницу в объёме, мелкая строка прижата к нулю.',
+  },
+  {
+    id: 'axes',
+    label: 'Две оси',
+    hint:
+      'У каждой строки своя шкала в штуках: левая и правая. Высоты линий между собой ' +
+      'не сравнимы — сравнивается форма, а числа остаются настоящими.',
+  },
+  {
+    id: 'share',
+    label: 'Доля от пика',
+    hint: 'Каждая строка приведена к своему пику: видно форму спроса, а не объём.',
+  },
+];
+
+/** Шкала панели: верх, низ и цвет строки, если шкала принадлежит ей одной. */
+interface Axis {
+  max: number;
+  min: number;
+  color: string | null;
+}
+
+/**
+ * Шкалы панели: одна общая на все строки или по одной на строку.
+ *
+ * У двух осей ноль стоит на одной высоте, поэтому доля шкалы под нулём берётся
+ * наибольшая из двух. Иначе линия одной строки пересекала бы нулевую черту там,
+ * где у неё ещё есть остаток, и «ниже нуля — дефицит» перестало бы читаться
+ * хотя бы для одной из них.
+ */
+function buildAxes(perRow: number[][], split: boolean, colors: string[]): Axis[] {
+  const bound = (values: number[]) => ({
+    max: niceBound(Math.max(1, ...values, 0)),
+    floor: Math.min(0, ...values),
+  });
+  if (!split) {
+    const all = bound(perRow.flat());
+    return [{ max: all.max, min: all.floor < 0 ? -niceBound(-all.floor) : 0, color: null }];
+  }
+  const bounds = perRow.map(bound);
+  const ratio = Math.max(0, ...bounds.map((b) => -b.floor / b.max));
+  return bounds.map((b, index) => ({
+    max: b.max,
+    min: -ratio * b.max,
+    color: colors[index] ?? null,
+  }));
+}
+
 /** Сравнение нескольких строк: по линии спроса и линии стока на каждую. */
 function CompareChart({ rows, weeks }: { rows: Row[]; weeks: Week[] }) {
   const [hover, setHover] = useState<number | null>(null);
-  /** Доли вместо штук: иначе мелкая позиция лежит на нуле рядом с крупной. */
-  const [share, setShare] = useState(false);
+  /** Что выбрал человек; что показано на самом деле — `mode` ниже. */
+  const [picked, setPicked] = useState<ScaleMode>('units');
 
   const series: Series[] = useMemo(
     () =>
@@ -426,30 +482,51 @@ function CompareChart({ rows, weeks }: { rows: Row[]; weeks: Week[] }) {
     [rows, weeks],
   );
 
+  // Третью ось рисовать негде, поэтому режим двух осей живёт только на паре строк.
+  // Выбор человека при этом сохраняется: уберёт лишнюю строку — вернётся к осям.
+  const mode: ScaleMode = picked === 'axes' && series.length !== 2 ? 'share' : picked;
+  const split = mode === 'axes';
+  const share = mode === 'share';
+
   // В долях каждая строка делится на собственный пик, в штуках — остаётся как есть.
   const scaled = (value: number | null, peak: number) =>
     value === null ? null : share ? (value / peak) * 100 : value;
 
-  const width = PAD_LEFT + weeks.length * STEP + PAD_RIGHT;
+  // Справа место под подписи второй шкалы, и только в этом режиме.
+  const padRight = split ? PAD_LEFT : PAD_RIGHT;
+  const width = PAD_LEFT + weeks.length * STEP + padRight;
   const stockTop = TOP + DEMAND_H + AXIS_H;
   const height = stockTop + STOCK_H + 18;
 
-  const demandValues = series.flatMap((s) =>
-    s.demand.map((v) => scaled(v, s.demandPeak)).filter((v): v is number => v !== null),
-  );
-  const stockValues = series.flatMap((s) =>
-    s.stock.map((v) => scaled(v, s.stockPeak)).filter((v): v is number => v !== null),
-  );
-  const demandMax = niceBound(Math.max(1, ...demandValues));
-  const stockMax = niceBound(Math.max(1, ...stockValues, 0));
-  const stockFloor = Math.min(0, ...stockValues);
-  const stockMin = stockFloor < 0 ? -niceBound(-stockFloor) : 0;
+  const colors = series.map((s) => s.color);
+  const panelValues = (pick: (s: Series) => (number | null)[], peak: (s: Series) => number) =>
+    series.map((s) =>
+      pick(s)
+        .map((value) => scaled(value, peak(s)))
+        .filter((value): value is number => value !== null),
+    );
 
-  const demandY = (value: number) => TOP + DEMAND_H - (value / demandMax) * DEMAND_H;
-  const stockY = (value: number) =>
-    stockTop + STOCK_H - ((value - stockMin) / (stockMax - stockMin)) * STOCK_H;
+  const demandAxes = buildAxes(
+    panelValues((s) => s.demand, (s) => s.demandPeak),
+    split,
+    colors,
+  );
+  const stockAxes = buildAxes(
+    panelValues((s) => s.stock, (s) => s.stockPeak),
+    split,
+    colors,
+  );
 
-  const path = (values: (number | null)[], peak: number, y: (v: number) => number) =>
+  /** Одна шкала — она общая; две — у каждой строки своя. */
+  const axisOf = (axes: Axis[], index: number) => axes[axes.length === 1 ? 0 : index];
+  const yOn = (axis: Axis, top: number, panel: number) => (value: number) =>
+    top + panel - ((value - axis.min) / (axis.max - axis.min)) * panel;
+
+  const path = (
+    values: (number | null)[],
+    peak: number,
+    y: (value: number) => number,
+  ) =>
     values
       .map((value, i) => {
         const v = scaled(value, peak);
@@ -461,18 +538,83 @@ function CompareChart({ rows, weeks }: { rows: Row[]; weeks: Week[] }) {
   const tick = (value: number) =>
     share ? `${numberFormat.format(Math.round(value))}%` : numberFormat.format(Math.round(value));
 
+  const at = (axis: Axis, fraction: number) => axis.min + fraction * (axis.max - axis.min);
+
+  /**
+   * Линии шкалы. Положение у них общее, а подписи — свои у каждой оси: доли
+   * высоты совпадают, потому что ноль у обеих осей сведён на одну высоту.
+   */
+  const ticks = (axes: Axis[], top: number, panel: number, fractions: number[]) =>
+    fractions.map((fraction) => {
+      const y = top + panel - fraction * panel;
+      return (
+        <g key={`${top}-${fraction}`}>
+          <line
+            x1={PAD_LEFT}
+            y1={y}
+            x2={width - padRight}
+            y2={y}
+            className={Math.abs(at(axes[0], fraction)) < 0.5 ? 'axis-base' : 'axis-grid'}
+          />
+          <text
+            x={PAD_LEFT - 8}
+            y={y + 4}
+            className="axis-label"
+            style={axes[0].color ? { fill: axes[0].color } : undefined}
+          >
+            {tick(at(axes[0], fraction))}
+          </text>
+          {axes[1] && (
+            <text
+              x={width - padRight + 8}
+              y={y + 4}
+              className="axis-label to-start"
+              style={axes[1].color ? { fill: axes[1].color } : undefined}
+            >
+              {tick(at(axes[1], fraction))}
+            </text>
+          )}
+        </g>
+      );
+    });
+
+  const zeroFraction = (axis: Axis) => (0 - axis.min) / (axis.max - axis.min);
+  const stockFractions = [...new Set([0, zeroFraction(stockAxes[0]), 1])].sort((a, b) => a - b);
+
   return (
     <>
       <div className="chart-controls">
-        <label className="checkbox">
-          <input type="checkbox" checked={share} onChange={() => setShare(!share)} />
-          Доля от собственного максимума
-        </label>
-        <span className="hint">
-          {share
-            ? 'Каждая строка приведена к своему пику: видно форму спроса, а не объём.'
-            : 'Общая шкала в штуках: видно разницу в объёме, мелкая строка прижата к нулю.'}
-        </span>
+        <div className="switch">
+          {SCALE_MODES.map((item) => (
+            <button
+              key={item.id}
+              className={mode === item.id ? 'active' : ''}
+              disabled={item.id === 'axes' && series.length !== 2}
+              title={
+                item.id === 'axes' && series.length !== 2
+                  ? 'Две оси помещаются только для двух строк'
+                  : item.hint
+              }
+              onClick={() => setPicked(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <span className="hint">{SCALE_MODES.find((item) => item.id === mode)?.hint}</span>
+        {split && (
+          <span className="hint axis-owners">
+            <span className="swatch line" style={{ background: series[0].color }} />
+            слева {series[0].row.title}
+            <span className="swatch line" style={{ background: series[1].color }} />
+            справа {series[1].row.title}
+          </span>
+        )}
+        {picked === 'axes' && !split && (
+          <span className="hint danger-text">
+            Две оси помещаются только для двух строк: пока показаны доли от пика.
+          </span>
+        )}
       </div>
 
       <div className="chart-readout compare">
@@ -504,56 +646,58 @@ function CompareChart({ rows, weeks }: { rows: Row[]; weeks: Week[] }) {
           onMouseLeave={() => setHover(null)}
         >
           {/* Шкала спроса */}
-          {[0, demandMax / 2, demandMax].map((value) => (
-            <g key={`d-${value}`}>
-              <line
-                x1={PAD_LEFT}
-                y1={demandY(value)}
-                x2={width - PAD_RIGHT}
-                y2={demandY(value)}
-                className={value === 0 ? 'axis-base' : 'axis-grid'}
-              />
-              <text x={PAD_LEFT - 8} y={demandY(value) + 4} className="axis-label">
-                {tick(value)}
-              </text>
-            </g>
-          ))}
+          {ticks(demandAxes, TOP, DEMAND_H, [0, 0.5, 1])}
           <text x={4} y={12} className="axis-title">
             спрос{share ? ', % от пика' : ', шт / нед.'}
           </text>
 
           {/* Шкала стока */}
-          {[stockMin, 0, stockMax]
-            .filter((value, index, all) => all.indexOf(value) === index)
-            .map((value) => (
-              <g key={`s-${value}`}>
-                <line
-                  x1={PAD_LEFT}
-                  y1={stockY(value)}
-                  x2={width - PAD_RIGHT}
-                  y2={stockY(value)}
-                  className={value === 0 ? 'axis-base' : 'axis-grid'}
-                />
-                <text x={PAD_LEFT - 8} y={stockY(value) + 4} className="axis-label">
-                  {tick(value)}
-                </text>
-              </g>
-            ))}
+          {ticks(stockAxes, stockTop, STOCK_H, stockFractions)}
           <text x={4} y={stockTop - 8} className="axis-title">
             сток{share ? ', % от пика' : ', шт'}
           </text>
 
+          {/* Правая шкала подписана цветом своей строки — чтобы не искать, чья она. */}
+          {split && (
+            <>
+              <text
+                x={width - padRight + 8}
+                y={12}
+                className="axis-title"
+                style={{ fill: series[1].color }}
+              >
+                шт / нед.
+              </text>
+              <text
+                x={width - padRight + 8}
+                y={stockTop - 8}
+                className="axis-title"
+                style={{ fill: series[1].color }}
+              >
+                шт
+              </text>
+            </>
+          )}
+
           <FactPlanDivider weeks={weeks} bottom={stockTop + STOCK_H} />
 
-          {series.map((s) => (
+          {series.map((s, index) => (
             <g key={s.row.key}>
               <polyline
-                points={path(s.demand, s.demandPeak, demandY)}
+                points={path(
+                  s.demand,
+                  s.demandPeak,
+                  yOn(axisOf(demandAxes, index), TOP, DEMAND_H),
+                )}
                 className="compare-line"
                 stroke={s.color}
               />
               <polyline
-                points={path(s.stock, s.stockPeak, stockY)}
+                points={path(
+                  s.stock,
+                  s.stockPeak,
+                  yOn(axisOf(stockAxes, index), stockTop, STOCK_H),
+                )}
                 className="compare-line"
                 stroke={s.color}
               />
@@ -570,6 +714,14 @@ function CompareChart({ rows, weeks }: { rows: Row[]; weeks: Week[] }) {
       </div>
 
       <p className="footnote">
+        {split && (
+          <>
+            У строк разные шкалы, поэтому высоты линий между собой не сравнимы, а точка
+            их пересечения ничего не значит: сравнивается форма, а подписи остаются
+            настоящими штуками. Ноль у обеих осей сведён на одну высоту — иначе линия
+            одной строки пересекала бы нулевую черту там, где у неё ещё есть остаток.{' '}
+          </>
+        )}
         Линия спроса — факт на закрытых неделях и исходный прогноз на открытых: он не
         обнуляется из-за дефицита, поэтому сравнивается спрос, а не остаток. Нижняя
         панель — реальный сток, он уходит ниже нуля там, где спрос не обслужен.
@@ -619,7 +771,7 @@ export function RowChart({ rows, weeks, notice, onRemove, onClose }: Props) {
                   : ''}
               </>
             ) : (
-              `Общая ось недель и общие шкалы. Щелчок по названию строки в таблице
+              `Общая ось недель; шкалы — на выбор. Щелчок по названию строки в таблице
                добавляет её на график и убирает обратно; больше ${MAX_CHART_ROWS} строк
                не помещается.`
             )}

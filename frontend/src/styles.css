@@ -1140,6 +1140,11 @@ table.matrix tr.charted .row-title.pick {
   text-anchor: end;
 }
 
+/* Подписи правой шкалы растут вправо от неё (F-15). */
+.chart .axis-label.to-start {
+  text-anchor: start;
+}
+
 /* --- Сравнение строк на графике (F-12) ------------------------------------- */
 
 .swatch.line {
@@ -1193,6 +1198,17 @@ table.matrix tr.charted .row-title.pick {
   align-items: center;
   gap: 6px;
   font-size: 13px;
+}
+
+/* Кому принадлежат левая и правая шкалы (F-15). */
+.axis-owners {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.axis-owners .swatch.line {
+  margin-left: 6px;
 }
 
 .chart-readout.compare {
