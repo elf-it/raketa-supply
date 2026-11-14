@@ -1315,3 +1315,7 @@ table.purchase.inner td {
   border-color: var(--accent);
   color: var(--accent);
 }
+
+.export-link {
+  margin-left: auto;
+}

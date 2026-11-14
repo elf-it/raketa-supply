@@ -102,6 +102,14 @@ export const api = {
   purchase: (filters: Omit<MatrixFilters, 'level'>, onlyNeeded: boolean) =>
     request<PurchasePlan>(`/purchase?only_needed=${onlyNeeded}&${query(filters)}`),
 
+  // Выгрузки — обычные ссылки, а не fetch: файл сохраняет браузер, с именем,
+  // которое прислал сервер. Фильтры те же, что у запроса данных, иначе в файле
+  // окажется не та выборка, которую человек видит на экране.
+  matrixExportUrl: (filters: MatrixFilters) => `${BASE}/matrix/export?${query(filters)}`,
+
+  purchaseExportUrl: (filters: Omit<MatrixFilters, 'level'>, onlyNeeded: boolean) =>
+    `${BASE}/purchase/export?only_needed=${onlyNeeded}&${query(filters)}`,
+
   setForecast: (
     pairId: number,
     week: string,

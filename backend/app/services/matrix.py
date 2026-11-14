@@ -367,6 +367,7 @@ def build_matrix(
                     "pair_id": pair.id,
                     "store_id": pair.store_id,
                     "store_name": pair.store_name,
+                    "vendor_code": pair.vendor_code,
                     "product_id": pair.product_id,
                     "category": pair.category_name,
                     "abc_class": pair.abc_class,

@@ -82,6 +82,8 @@ function urgency(row: PurchaseRow): { label: string; tone: string } | null {
 
 interface Props {
   plan: PurchasePlan;
+  /** Готовая ссылка на выгрузку: фильтры и отбор знает приложение, не панель. */
+  exportUrl: string;
   onlyNeeded: boolean;
   onOnlyNeededChange: (value: boolean) => void;
   canEdit: boolean;
@@ -92,6 +94,7 @@ interface Props {
 
 export function PurchasePanel({
   plan,
+  exportUrl,
   onlyNeeded,
   onOnlyNeededChange,
   canEdit,
@@ -183,6 +186,13 @@ export function PurchasePanel({
             ? 'Заказ уходит поставщику целиком — MOQ и партии считаются по позиции, итог по группе'
             : 'Все позиции подряд, ближайший срок заказа сверху'}
         </span>
+        <a
+          className="button-link small export-link"
+          href={exportUrl}
+          title="Весь разбор количества колонками: спрос окна, страховой запас, остаток, в пути"
+        >
+          Скачать .xlsx
+        </a>
       </div>
 
       <div className="matrix-scroll">

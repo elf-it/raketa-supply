@@ -378,6 +378,14 @@ export default function App() {
               {matrix.context.sku_count} SKU · закрыта {matrix.context.last_closed_week} · горизонт{' '}
               {matrix.context.horizon_weeks} нед.
             </span>
+            {/* Ссылка, а не fetch: файл сохраняет браузер под именем от сервера. */}
+            <a
+              className="button-link small"
+              href={api.matrixExportUrl(filters)}
+              title="Те же строки и недели, что на экране, в книге Excel"
+            >
+              Скачать .xlsx
+            </a>
           </div>
 
           {matrix.level === 'sku' && canEdit && (
@@ -427,6 +435,7 @@ export default function App() {
       {tab === 'purchase' && purchase && (
         <PurchasePanel
           plan={purchase}
+          exportUrl={api.purchaseExportUrl(pageFilters, onlyNeeded)}
           onlyNeeded={onlyNeeded}
           onOnlyNeededChange={setOnlyNeeded}
           canEdit={canEdit}

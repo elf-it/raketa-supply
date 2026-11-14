@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..schemas import PurchaseParamsOut, PurchasePlanOut, PurchaseRowOut
 from ..services.matrix import MatrixFilters
+from ..services.matrix_export import build_purchase_workbook, purchase_filename
 from ..services.purchase import PurchaseRow, build_purchase_plan
+from .responses import filter_names, xlsx_response
 
 router = APIRouter(prefix="/purchase", tags=["Закупка"])
 
@@ -70,4 +72,33 @@ def get_purchase_plan(
         total_cost=sum(r.cost for r in out),
         total_volume_m3=sum(r.volume_m3 for r in out),
         overdue_count=sum(1 for r in out if r.is_overdue and r.needed),
+    )
+
+
+@router.get("/export", summary="Выгрузка закупочной потребности в XLSX")
+def export_purchase_plan(
+    store_id: int | None = Query(None),
+    category_id: int | None = Query(None),
+    product_id: int | None = Query(None),
+    search: str | None = Query(None),
+    only_needed: bool = Query(False),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Весь разбор количества колонками: файл должен отвечать на «почему столько»."""
+    rows = build_purchase_plan(
+        session,
+        MatrixFilters(
+            store_id=store_id,
+            category_id=category_id,
+            product_id=product_id,
+            search=search,
+        ),
+    )
+    if only_needed:
+        rows = [r for r in rows if r.suggestion.needed]
+    store_name, category_name = filter_names(session, store_id, category_id)
+    return xlsx_response(
+        build_purchase_workbook(rows, only_needed, store_name, category_name),
+        purchase_filename(),
+        "purchase-plan.xlsx",
     )

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from urllib.parse import quote
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi import status as http_status
 from sqlalchemy.orm import Session
@@ -12,10 +10,9 @@ from ..schemas import OrderIn, OrderLineOut, OrderOut, OrderStatusIn
 from ..services import orders as service
 from ..services.order_export import build_order_workbook, order_filename
 from .deps import require_editor
+from .responses import xlsx_response
 
 router = APIRouter(prefix="/orders", tags=["Заказы"])
-
-XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def _to_out(order: PurchaseOrder, with_lines: bool = True) -> OrderOut:
@@ -105,16 +102,8 @@ def export_order(order_id: int, session: Session = Depends(get_session)) -> Resp
     if order is None:
         raise HTTPException(status_code=404, detail="Заказ не найден")
 
-    filename = order_filename(order)
-    # Content-Disposition ограничен latin-1, поэтому кириллическое имя уходит
-    # по RFC 5987, а рядом остаётся ASCII-запасной вариант для старых клиентов.
-    disposition = (
-        f"attachment; filename=\"order-{order.id}.xlsx\"; filename*=UTF-8''{quote(filename)}"
-    )
-    return Response(
-        content=build_order_workbook(order),
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": disposition},
+    return xlsx_response(
+        build_order_workbook(order), order_filename(order), f"order-{order.id}.xlsx"
     )
 
 
