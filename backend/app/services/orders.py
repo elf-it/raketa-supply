@@ -7,15 +7,23 @@
 Расчёт видит заказ не напрямую, а через поставки (:class:`Supply`): размещение
 создаёт их со статусом «в пути», и потребность уменьшается сама, без отдельной
 ветки в формулах. Отмена удаляет поставки, и потребность возвращается.
+
+Правится только черновик. Размещённый заказ уже ушёл поставщику и живёт
+в расчёте как товар в пути: правка задним числом означала бы, что документ
+у нас и документ у поставщика разошлись, а потребность пересчиталась под нашу
+версию. Такой заказ отменяют и собирают заново — **[ДОПУЩЕНИЕ, Q-11]**,
+пока неизвестно, ведётся ли заказ здесь или в учётной системе.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from ..calc import week_start
 from ..models import (
     OrderStatus,
     Product,
@@ -26,6 +34,7 @@ from ..models import (
     SupplyStatus,
     User,
 )
+from .matrix import load_app_settings, resolve_last_closed_week
 
 #: Разрешённые переходы. Из конечных статусов выхода нет: заказ не воскрешают,
 #: вместо этого создают новый. Порядок внутри списка — порядок кнопок на экране:
@@ -49,6 +58,14 @@ class OrderError(ValueError):
     """Нарушение правил работы с заказом: состав строк или переход статуса."""
 
 
+class OrderStateError(OrderError):
+    """Действие не подходит к текущему статусу заказа."""
+
+
+class OrderLineNotFound(OrderError):
+    """В этом заказе нет такой строки."""
+
+
 @dataclass(frozen=True)
 class OrderLineInput:
     pair_id: int
@@ -56,17 +73,43 @@ class OrderLineInput:
     arrival_week: str
 
 
+def check_arrival_week(session: Session, week: str, today: date | None = None) -> None:
+    """Проверяет неделю прихода: формат ``2026-W48`` и что неделя ещё не закрыта.
+
+    Приход в закрытую неделю расчёт не учтёт: остаток закрытой недели берётся
+    из факта, а закупочная потребность смотрит только на открытые недели. Такая
+    строка молча не уменьшила бы потребность — заказ есть, а система просит
+    купить то же самое ещё раз.
+    """
+    try:
+        week_start(week)
+    except ValueError as error:
+        raise OrderError(
+            f"Неделя прихода {week!r} не похожа на ISO-неделю вида 2026-W48"
+        ) from error
+
+    last_closed = resolve_last_closed_week(load_app_settings(session), today)
+    if week <= last_closed:
+        raise OrderError(
+            f"Неделя прихода {week} уже закрыта (последняя закрытая — {last_closed}): "
+            "приход в прошлое расчёт не учтёт"
+        )
+
+
 def create_order(
     session: Session,
     lines: list[OrderLineInput],
     author: User | None = None,
     note: str | None = None,
+    today: date | None = None,
 ) -> PurchaseOrder:
     """Создаёт черновик заказа. Поставщик выводится из строк, а не задаётся извне."""
     if not lines:
         raise OrderError("В заказе нет ни одной строки")
     if any(line.qty <= 0 for line in lines):
         raise OrderError("Количество в строке заказа должно быть положительным")
+    for line in lines:
+        check_arrival_week(session, line.arrival_week, today)
 
     pair_ids = [line.pair_id for line in lines]
     if len(set(pair_ids)) != len(pair_ids):
@@ -121,7 +164,7 @@ def set_status(session: Session, order: PurchaseOrder, status: OrderStatus) -> P
     if status == order.status:
         return order
     if status not in TRANSITIONS[order.status]:
-        raise OrderError(
+        raise OrderStateError(
             f"Нельзя перевести заказ из «{STATUS_LABELS[order.status]}» "
             f"в «{STATUS_LABELS[status]}»"
         )
@@ -154,6 +197,82 @@ def set_status(session: Session, order: PurchaseOrder, status: OrderStatus) -> P
         order.closed_at = now
 
     order.status = status
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def _require_draft(order: PurchaseOrder, action: str) -> None:
+    if order.status is not OrderStatus.DRAFT:
+        raise OrderStateError(
+            f"{action} можно только в черновике, а заказ в статусе "
+            f"«{STATUS_LABELS[order.status]}». Размещённый заказ отменяют "
+            "и собирают заново"
+        )
+
+
+def _line(order: PurchaseOrder, line_id: int) -> PurchaseOrderLine:
+    line = next((item for item in order.lines if item.id == line_id), None)
+    if line is None:
+        raise OrderLineNotFound(f"В заказе №{order.id} нет строки {line_id}")
+    return line
+
+
+def update_line(
+    session: Session,
+    order: PurchaseOrder,
+    line_id: int,
+    qty: int | None = None,
+    arrival_week: str | None = None,
+    today: date | None = None,
+) -> PurchaseOrder:
+    """Меняет количество и неделю прихода в строке черновика.
+
+    Себестоимость и объём остаются теми, что записаны при создании заказа:
+    они снимок карточки товара на тот момент, а не следствие количества.
+    Сумма строки пересчитывается сама, потому что считается как количество
+    на записанную цену.
+    """
+    _require_draft(order, "Править строки")
+    line = _line(order, line_id)
+    if qty is None and arrival_week is None:
+        raise OrderError("Нечего менять: укажите количество или неделю прихода")
+    if qty is not None:
+        if qty <= 0:
+            raise OrderError(
+                "Количество в строке должно быть положительным. "
+                "Ненужную позицию убирают из заказа, а не обнуляют"
+            )
+        line.qty = qty
+    if arrival_week is not None:
+        check_arrival_week(session, arrival_week, today)
+        line.arrival_week = arrival_week
+
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def delete_line(session: Session, order: PurchaseOrder, line_id: int) -> PurchaseOrder:
+    """Убирает строку из черновика. Последнюю строку убрать нельзя."""
+    _require_draft(order, "Убирать строки")
+    line = _line(order, line_id)
+    if len(order.lines) == 1:
+        # Заказ без строк нельзя ни отправить, ни принять, и поставщик у него
+        # выведен из строк — пустой документ остался бы без поставщика.
+        raise OrderError("Это последняя строка заказа. Заказ целиком отменяют кнопкой «Отменить»")
+
+    session.delete(line)
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def update_note(session: Session, order: PurchaseOrder, note: str | None) -> PurchaseOrder:
+    """Меняет примечание черновика — оно уходит поставщику в шапке файла."""
+    _require_draft(order, "Править примечание")
+    text = (note or "").strip()
+    order.note = text or None
     session.commit()
     session.refresh(order)
     return order

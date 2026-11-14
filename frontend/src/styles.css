@@ -1319,3 +1319,20 @@ table.purchase.inner td {
 .export-link {
   margin-left: auto;
 }
+
+.editable.week input {
+  width: 82px;
+  text-align: center;
+}
+
+.editable.note input {
+  width: 280px;
+  text-align: left;
+}
+
+.note-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 2px;
+}

@@ -163,6 +163,24 @@ export const api = {
   createOrder: (draft: OrderDraft) =>
     request<Order>('/orders', { method: 'POST', body: JSON.stringify(draft) }),
 
+  // Правка черновика. Сервер отвечает заказом целиком, но экран всё равно
+  // перечитывает список: правка меняет итоги, а они видны и в соседних строках.
+  updateOrderLine: (
+    orderId: number,
+    lineId: number,
+    payload: { qty?: number; arrival_week?: string },
+  ) =>
+    request<Order>(`/orders/${orderId}/lines/${lineId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteOrderLine: (orderId: number, lineId: number) =>
+    request<Order>(`/orders/${orderId}/lines/${lineId}`, { method: 'DELETE' }),
+
+  setOrderNote: (orderId: number, note: string | null) =>
+    request<Order>(`/orders/${orderId}`, { method: 'PATCH', body: JSON.stringify({ note }) }),
+
   setOrderStatus: (orderId: number, status: OrderStatus) =>
     request<Order>(`/orders/${orderId}/status`, {
       method: 'POST',

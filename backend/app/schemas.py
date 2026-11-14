@@ -282,6 +282,17 @@ class OrderIn(BaseModel_):
     note: str | None = Field(default=None, max_length=1000)
 
 
+class OrderLinePatchIn(BaseModel_):
+    """Правка строки черновика: меняется то, что передано, остальное остаётся."""
+
+    qty: int | None = Field(default=None, gt=0)
+    arrival_week: str | None = Field(default=None, min_length=8, max_length=8)
+
+
+class OrderNoteIn(BaseModel_):
+    note: str | None = Field(default=None, max_length=1000)
+
+
 class OrderStatusIn(BaseModel_):
     status: OrderStatus
 
