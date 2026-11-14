@@ -105,9 +105,15 @@ class SeriesInput:
         return self.last_closed_week is not None and week <= self.last_closed_week
 
 
-@dataclass
+@dataclass(slots=True)
 class WeekCell:
-    """Одна неделя одной строки матрицы."""
+    """Одна неделя одной строки матрицы.
+
+    ``slots=True`` здесь не украшение: ячеек столько же, сколько пар на недели,
+    и на кэшируемом каталоге их сотни тысяч. Без слотов каждая тащила бы ещё
+    и словарь атрибутов — по замерам это разница в три с половиной раза
+    по памяти кэша.
+    """
 
     week: str
     is_closed: bool = False
@@ -117,6 +123,10 @@ class WeekCell:
     adapted_stock: float = 0.0
     fact_sales: float | None = None
     supply: float = 0.0
+    #: Ожидаемый приход этой недели: часть ``supply``, которой ещё не было
+    #: в остатке. Нужен расчёту закупки, и держится здесь, чтобы готовый ряд
+    #: не требовал заново поднимать из базы то, из чего он уже посчитан.
+    in_transit: float = 0.0
     diff_percent: float | None = None
     shortage_units: float = 0.0
     stock_limited: bool = False
@@ -128,9 +138,18 @@ class SeriesResult:
     cells: list[WeekCell]
     status: Status = Status.OK
     coverage_weeks: float | None = None
+    #: Остаток на входе в первую неделю ряда — он же остаток, с которым считается
+    #: закупка, если в ряду нет ни одной закрытой недели.
+    opening_stock: float = 0.0
+    _by_week: dict[str, WeekCell] | None = field(default=None, repr=False, compare=False)
 
     def by_week(self) -> dict[str, WeekCell]:
-        return {c.week: c for c in self.cells}
+        """Ячейки по неделям. Словарь собирается один раз: его просят многократно —
+        агрегация, сборка строк, KPI, — и каждый раз пересобирать его означало бы
+        тысячи словарей на запрос."""
+        if self._by_week is None:
+            self._by_week = {c.week: c for c in self.cells}
+        return self._by_week
 
 
 @dataclass

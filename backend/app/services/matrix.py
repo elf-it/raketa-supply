@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from ..calc import (
     CalcSettings,
@@ -35,6 +35,7 @@ from ..models import (
     WeekFact,
     WeekPlan,
 )
+from .calc_cache import get_series_cache, series_signature
 
 MONTHS_RU = [
     "Январь",
@@ -80,6 +81,10 @@ class Pair:
     niche: str | None
     abc_class: str | None
     base_potential: float
+    #: Номер версии данных пары: по нему кэш расчёта решает, годится ли
+    #: посчитанный ранее ряд. Читается вместе с парой — раньше самих данных,
+    #: и на этом порядке держится правильность кэша (`services/calc_cache.py`).
+    calc_revision: int = 1
 
 
 @dataclass
@@ -177,15 +182,35 @@ def build_week_axis(
 
 
 def load_pairs(session: Session, filters: MatrixFilters) -> list[Pair]:
+    """Пары выборки одним запросом — колонками, а не сущностями.
+
+    Объекты здесь не нужны: :class:`Pair` — ровно то, что требуется расчёту
+    и шапке строки, а сборка тысячи ``StoreProduct`` с подгруженными магазином,
+    товаром и категорией стоила бы на порядок дороже самого запроса.
+
+    Колонки заодно дают свежий ``calc_revision``: сущность, однажды загруженную
+    в сессию, повторный запрос не перечитывает, и в сессии, которая только что
+    сама же что-то правила, номер остался бы прежним.
+    """
     stmt = (
-        select(StoreProduct)
+        select(
+            StoreProduct.id.label("id"),
+            StoreProduct.store_id.label("store_id"),
+            Store.name.label("store_name"),
+            StoreProduct.product_id.label("product_id"),
+            Product.vendor_code.label("vendor_code"),
+            Product.title.label("title"),
+            StoreProduct.nm_id.label("nm_id"),
+            Category.id.label("category_id"),
+            Category.name.label("category_name"),
+            Category.niche.label("niche"),
+            Category.abc_class.label("abc_class"),
+            StoreProduct.base_potential.label("base_potential"),
+            StoreProduct.calc_revision.label("calc_revision"),
+        )
         .join(Store, Store.id == StoreProduct.store_id)
         .join(Product, Product.id == StoreProduct.product_id)
         .outerjoin(Category, Category.id == Product.category_id)
-        .options(
-            selectinload(StoreProduct.store),
-            selectinload(StoreProduct.product).selectinload(Product.category),
-        )
         .where(StoreProduct.is_active.is_(True), Store.is_active.is_(True))
     )
     if filters.store_id:
@@ -203,26 +228,9 @@ def load_pairs(session: Session, filters: MatrixFilters) -> list[Pair]:
         )
     stmt = stmt.order_by(Store.code, Product.vendor_code)
 
-    pairs: list[Pair] = []
-    for sp in session.scalars(stmt).all():
-        category = sp.product.category
-        pairs.append(
-            Pair(
-                id=sp.id,
-                store_id=sp.store_id,
-                store_name=sp.store.name,
-                product_id=sp.product_id,
-                vendor_code=sp.product.vendor_code,
-                title=sp.product.title,
-                nm_id=sp.nm_id,
-                category_id=category.id if category else None,
-                category_name=category.name if category else None,
-                niche=category.niche if category else None,
-                abc_class=category.abc_class if category else None,
-                base_potential=sp.base_potential,
-            )
-        )
-    return pairs
+    # Имена колонок совпадают с полями ``Pair`` намеренно: подстановка по имени
+    # не переставит ниши с ABC-классом, если в запрос добавят ещё колонку.
+    return [Pair(**row._mapping) for row in session.execute(stmt)]
 
 
 def func_lower(column):
@@ -235,88 +243,160 @@ def build_series_inputs(
     session: Session,
     pairs: list[Pair],
     weeks: list[str],
-    last_closed: str,
+    last_closed: str | None,
 ) -> dict[int, SeriesInput]:
-    """Собирает вход расчёта для каждой пары одним набором запросов."""
+    """Собирает вход расчёта для каждой пары одним набором запросов.
+
+    Запросы берут колонки, а не сущности: из недельного факта расчёту нужны
+    два числа, а ORM собрала бы на каждую строку объект с отслеживанием
+    изменений. На тысяче пар таких строк больше тридцати тысяч, и их сборка
+    была самой дорогой частью ответа.
+    """
     if not pairs:
         return {}
 
     pair_ids = [p.id for p in pairs]
+    week_set = set(weeks)
     before_first = shift_week(weeks[0], -1)
+    # Пока ни одна неделя не закрыта, прийти ещё ничего не успело: пустая
+    # отметка должна быть меньше любой недели, а не ломать сравнение.
+    closed_until = last_closed or ""
 
-    facts: dict[int, dict[str, WeekFact]] = defaultdict(dict)
+    fact_sales: dict[int, dict[str, float]] = defaultdict(dict)
+    fact_stock: dict[int, dict[str, float]] = defaultdict(dict)
     opening: dict[int, float] = {}
-    fact_rows = session.scalars(
-        select(WeekFact).where(
+    for pair_id, week, sales, stock_end in session.execute(
+        select(
+            WeekFact.store_product_id,
+            WeekFact.week,
+            WeekFact.sales_units,
+            WeekFact.stock_end_units,
+        ).where(
             WeekFact.store_product_id.in_(pair_ids),
-            WeekFact.week <= weeks[-1],
+            WeekFact.week.in_([*weeks, before_first]),
         )
-    ).all()
-    for row in fact_rows:
-        if row.week in weeks:
-            facts[row.store_product_id][row.week] = row
-        if row.week == before_first and row.stock_end_units is not None:
-            opening[row.store_product_id] = row.stock_end_units
+    ):
+        if week in week_set:
+            fact_sales[pair_id][week] = sales
+            if stock_end is not None:
+                fact_stock[pair_id][week] = stock_end
+        elif week == before_first and stock_end is not None:
+            opening[pair_id] = stock_end
 
     supplies: dict[int, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     in_transit: dict[int, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    for row in session.scalars(
-        select(Supply).where(Supply.store_product_id.in_(pair_ids), Supply.week.in_(weeks))
-    ).all():
-        supplies[row.store_product_id][row.week] += row.qty
+    for pair_id, week, qty, status in session.execute(
+        select(Supply.store_product_id, Supply.week, Supply.qty, Supply.status).where(
+            Supply.store_product_id.in_(pair_ids), Supply.week.in_(weeks)
+        )
+    ):
+        supplies[pair_id][week] += qty
         # Поставка в незакрытой неделе — всё ещё ожидаемый приход, какой бы статус
         # ей ни проставили руками: факта по этой неделе ещё нет, и в остатке её нет.
         # Иначе заказ, отмеченный принятым до недели прихода, исчезал бы из расчёта
         # и потребность возвращалась бы на пустом месте.
-        if row.week > last_closed or row.status in (SupplyStatus.PLANNED, SupplyStatus.IN_TRANSIT):
-            in_transit[row.store_product_id][row.week] += row.qty
+        if week > closed_until or status in (SupplyStatus.PLANNED, SupplyStatus.IN_TRANSIT):
+            in_transit[pair_id][week] += qty
 
     plans: dict[int, dict[str, float]] = defaultdict(dict)
-    for row in session.scalars(
-        select(WeekPlan).where(WeekPlan.store_product_id.in_(pair_ids), WeekPlan.week.in_(weeks))
-    ).all():
-        plans[row.store_product_id][row.week] = row.plan_units
+    for pair_id, week, plan_units in session.execute(
+        select(WeekPlan.store_product_id, WeekPlan.week, WeekPlan.plan_units).where(
+            WeekPlan.store_product_id.in_(pair_ids), WeekPlan.week.in_(weeks)
+        )
+    ):
+        plans[pair_id][week] = plan_units
 
-    adjustments: dict[int, list[ForecastAdjustment]] = defaultdict(list)
-    for row in session.scalars(
-        select(ForecastAdjustment).where(
+    diffs: dict[int, dict[str, float]] = defaultdict(dict)
+    manual_forecast: dict[int, dict[str, float]] = defaultdict(dict)
+    manual_adapted: dict[int, dict[str, float]] = defaultdict(dict)
+    for pair_id, week, diff, forecast, adapted in session.execute(
+        select(
+            ForecastAdjustment.store_product_id,
+            ForecastAdjustment.week,
+            ForecastAdjustment.diff_percent,
+            ForecastAdjustment.manual_forecast,
+            ForecastAdjustment.manual_adapted,
+        ).where(
             ForecastAdjustment.store_product_id.in_(pair_ids),
             ForecastAdjustment.week.in_(weeks),
         )
-    ).all():
-        adjustments[row.store_product_id].append(row)
+    ):
+        if diff is not None:
+            diffs[pair_id][week] = diff
+        if forecast is not None:
+            manual_forecast[pair_id][week] = forecast
+        if adapted is not None:
+            manual_adapted[pair_id][week] = adapted
 
     seasonality: dict[int, dict[int, float]] = defaultdict(dict)
-    for row in session.scalars(select(Seasonality)).all():
-        seasonality[row.category_id][row.iso_week] = row.coefficient
+    for category_id, iso_week, coefficient in session.execute(
+        select(Seasonality.category_id, Seasonality.iso_week, Seasonality.coefficient)
+    ):
+        seasonality[category_id][iso_week] = coefficient
+
+    # Номера недель оси считаются один раз на всю выборку, а не на каждую пару.
+    iso_weeks = [(w, int(w.split("W")[1])) for w in weeks]
 
     out: dict[int, SeriesInput] = {}
     for pair in pairs:
-        pair_facts = facts.get(pair.id, {})
         coefs = seasonality.get(pair.category_id or -1, {})
-        data = SeriesInput(
+        out[pair.id] = SeriesInput(
             weeks=list(weeks),
             opening_stock=opening.get(pair.id, 0.0),
             last_closed_week=last_closed,
             base_potential=pair.base_potential,
-            seasonality={w: coefs.get(int(w.split("W")[1]), 1.0) for w in weeks},
+            seasonality={week: coefs.get(iso, 1.0) for week, iso in iso_weeks},
+            diff_percent=dict(diffs.get(pair.id, {})),
+            manual_forecast=dict(manual_forecast.get(pair.id, {})),
+            manual_adapted=dict(manual_adapted.get(pair.id, {})),
             plan=dict(plans.get(pair.id, {})),
-            fact_sales={w: f.sales_units for w, f in pair_facts.items()},
-            fact_stock_end={
-                w: f.stock_end_units for w, f in pair_facts.items() if f.stock_end_units is not None
-            },
+            fact_sales=dict(fact_sales.get(pair.id, {})),
+            fact_stock_end=dict(fact_stock.get(pair.id, {})),
             supply=dict(supplies.get(pair.id, {})),
             in_transit=dict(in_transit.get(pair.id, {})),
         )
-        for adj in adjustments.get(pair.id, []):
-            if adj.diff_percent is not None:
-                data.diff_percent[adj.week] = adj.diff_percent
-            if adj.manual_forecast is not None:
-                data.manual_forecast[adj.week] = adj.manual_forecast
-            if adj.manual_adapted is not None:
-                data.manual_adapted[adj.week] = adj.manual_adapted
-        out[pair.id] = data
     return out
+
+
+def compute_results(
+    session: Session,
+    pairs: list[Pair],
+    weeks: list[str],
+    last_closed: str | None,
+    settings: CalcSettings,
+    epoch: int,
+) -> dict[int, SeriesResult]:
+    """Недельные ряды по парам: что есть в кэше — оттуда, остальное — расчётом.
+
+    Единственное место, где считаются ряды для экранов, поэтому и кэш один
+    на всех: матрица, закупка и выгрузки получают одинаковые числа, а не
+    каждая свои.
+
+    Порядок важен: номера версий пришли вместе с ``pairs``, то есть раньше,
+    чем грузятся данные. Если правка закоммитится между этими двумя чтениями,
+    результат окажется помечен устаревшим номером и его никто не спросит.
+    Обратный порядок дал бы свежий номер на старых данных — молча неверные числа;
+    почему выбрано так, подробно в `services/calc_cache.py`.
+    """
+    cache = get_series_cache()
+    signature = series_signature(weeks, last_closed, settings)
+
+    results: dict[int, SeriesResult] = {}
+    misses: list[Pair] = []
+    for pair in pairs:
+        ready = cache.get(pair.id, signature, pair.calc_revision, epoch)
+        if ready is None:
+            misses.append(pair)
+        else:
+            results[pair.id] = ready
+
+    if misses:
+        inputs = build_series_inputs(session, misses, weeks, last_closed)
+        for pair in misses:
+            result = compute_series(inputs[pair.id], settings)
+            cache.put(pair.id, signature, pair.calc_revision, epoch, result)
+            results[pair.id] = result
+    return results
 
 
 # ------------------------------------------------------------------------------ сборка
@@ -369,9 +449,10 @@ def build_matrix(
     целиком — так работают выгрузка в XLSX и тесты; окно задаёт клиент, а не сервер:
     сервер обязан уметь отдать всё, экран — не обязан всё просить.
 
-    Расчёт ``compute_series`` всё равно идёт по всем парам выборки: без них не
-    собрать ни итоги, ни отбор по статусу. Окно экономит сборку показателей по
-    неделям и передачу — на тысяче позиций это основная часть ответа.
+    Ряды собираются по всем парам выборки, а не только по окну: без них не
+    посчитать ни итоги, ни отбор по статусу. Зато посчитаны они будут не заново —
+    :func:`compute_results` берёт готовые из кэша и считает только те пары, чьи
+    данные изменились. Окно экономит сборку показателей по неделям и передачу.
     """
     today = today or date.today()
     app_settings = load_app_settings(session)
@@ -383,10 +464,7 @@ def build_matrix(
     weeks = [w["key"] for w in axis]
 
     pairs = load_pairs(session, filters)
-    inputs = build_series_inputs(session, pairs, weeks, last_closed)
-    results: dict[int, SeriesResult] = {
-        pair.id: compute_series(inputs[pair.id], settings) for pair in pairs
-    }
+    results = compute_results(session, pairs, weeks, last_closed, settings, app_settings.calc_epoch)
 
     if level is Level.SKU:
         shown = [pair for pair in pairs if status is None or results[pair.id].status is status]

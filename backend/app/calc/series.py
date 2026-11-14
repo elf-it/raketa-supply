@@ -45,6 +45,7 @@ def compute_series(data: SeriesInput, settings: CalcSettings | None = None) -> S
     for week in data.weeks:
         closed = data.is_closed(week)
         supply = float(data.supply.get(week, 0.0))
+        in_transit = float(data.in_transit.get(week, 0.0))
         original = original_forecast(data, week)
 
         if closed:
@@ -68,6 +69,7 @@ def compute_series(data: SeriesInput, settings: CalcSettings | None = None) -> S
                 adapted_stock=adapted_stock,
                 fact_sales=float(fact) if fact is not None else None,
                 supply=supply,
+                in_transit=in_transit,
                 diff_percent=None,
                 shortage_units=max(0.0, original - adapted),
                 stock_limited=False,
@@ -88,6 +90,7 @@ def compute_series(data: SeriesInput, settings: CalcSettings | None = None) -> S
                 adapted_stock=adapted_stock,
                 fact_sales=None,
                 supply=supply,
+                in_transit=in_transit,
                 diff_percent=data.diff_percent.get(week, 100.0),
                 shortage_units=max(0.0, original - adapted),
                 stock_limited=adapted < desired,
@@ -96,7 +99,7 @@ def compute_series(data: SeriesInput, settings: CalcSettings | None = None) -> S
 
         cells.append(cell)
 
-    result = SeriesResult(cells=cells)
+    result = SeriesResult(cells=cells, opening_stock=float(data.opening_stock))
     result.coverage_weeks = _coverage_weeks(data, cells, settings)
     result.status = _status(cells, result.coverage_weeks, settings)
     return result

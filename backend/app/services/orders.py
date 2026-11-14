@@ -34,6 +34,7 @@ from ..models import (
     SupplyStatus,
     User,
 )
+from ..revisions import touch_pairs
 from .matrix import load_app_settings, resolve_last_closed_week
 
 #: Разрешённые переходы. Из конечных статусов выхода нет: заказ не воскрешают,
@@ -194,6 +195,10 @@ def set_status(session: Session, order: PurchaseOrder, status: OrderStatus) -> P
         line_ids = [line.id for line in order.lines]
         if line_ids:
             session.execute(delete(Supply).where(Supply.order_line_id.in_(line_ids)))
+            # Запрос убрал поставки, не трогая объектов сессии, поэтому отметку
+            # об изменении данных расчёта приходится поднять руками: слушатель
+            # `app/revisions.py` видит только то, что проходит через ORM.
+            touch_pairs(session, [line.store_product_id for line in order.lines])
         order.closed_at = now
 
     order.status = status

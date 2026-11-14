@@ -5,6 +5,11 @@ from collections.abc import Iterator
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
+# Импорт нужен ради побочного эффекта: модуль вешает слушателя, который помечает
+# изменённые данные расчёта. Без него кэш не узнавал бы о правках, поэтому
+# слушатель ставится здесь, рядом с сессиями, а не в точке входа приложения:
+# сессию создают и тесты, и скрипты, и сид.
+from . import revisions  # noqa: F401
 from .config import get_settings
 
 

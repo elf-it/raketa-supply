@@ -172,6 +172,12 @@ class StoreProduct(Base):
     barcode: Mapped[str | None] = mapped_column(String(64), default=None)
     base_potential: Mapped[float] = mapped_column(Float, default=0.0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: Номер версии данных, из которых считается недельный ряд этой пары: факты,
+    #: поставки, планы, ручные правки, базовый потенциал. Растёт на любом таком
+    #: изменении (`app/revisions.py`), и кэш расчёта хранит результат вместе
+    #: с номером. Номер живёт в базе, а не в памяти процесса, поэтому правка,
+    #: прошедшая через один воркер, обесценивает кэш у всех остальных.
+    calc_revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
     store: Mapped[Store] = relationship(back_populates="pairs")
     product: Mapped[Product] = relationship(back_populates="pairs")
@@ -406,3 +412,8 @@ class AppSettings(Base):
     default_pack_size: Mapped[int] = mapped_column(Integer, default=1)
     default_coverage_weeks: Mapped[int] = mapped_column(Integer, default=4)
     default_safety_weeks: Mapped[float] = mapped_column(Float, default=2.0)
+    #: Номер версии данных, общих для всех пар: сезонность категорий, привязка
+    #: товара к категории, сами настройки расчёта. Отдельная отметка на каждой паре
+    #: означала бы обновление всей таблицы при правке одного коэффициента, поэтому
+    #: такие изменения считаются одним счётчиком — кэш расчёта сбрасывается целиком.
+    calc_epoch: Mapped[int] = mapped_column(Integer, default=1, server_default="1")

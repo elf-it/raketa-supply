@@ -8,14 +8,14 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..calc import PurchaseParams, PurchaseSuggestion, compute_series, suggest_purchase
+from ..calc import PurchaseParams, PurchaseSuggestion, suggest_purchase
 from ..models import AppSettings, Product, Supplier
 from .matrix import (
     MatrixFilters,
     Pair,
-    build_series_inputs,
     build_week_axis,
     calc_settings,
+    compute_results,
     load_app_settings,
     load_pairs,
     resolve_last_closed_week,
@@ -77,7 +77,9 @@ def build_purchase_plan(
     if not pairs:
         return []
 
-    inputs = build_series_inputs(session, pairs, weeks, last_closed)
+    # Те же ряды, что у матрицы, и из того же кэша — только ось своя: закупке
+    # не нужна история, ей нужен весь горизонт вперёд.
+    results = compute_results(session, pairs, weeks, last_closed, settings, app_settings.calc_epoch)
 
     products = {
         p.id: p
@@ -89,15 +91,17 @@ def build_purchase_plan(
 
     rows: list[PurchaseRow] = []
     for pair in pairs:
-        data = inputs[pair.id]
-        result = compute_series(data, settings)
+        result = results[pair.id]
         cells = result.by_week()
 
         # Спрос для закупки — исходный, а не адаптированный (ключевой принцип ТЗ).
         demand = {w: cells[w].original_forecast for w in future_weeks if w in cells}
+        # Ожидаемый приход берётся из того же ряда: отдельный поход в базу дал бы
+        # второй источник правды о том, что уже заказано.
+        in_transit = {w: cells[w].in_transit for w in future_weeks if w in cells}
         # Физический остаток на конец последней закрытой недели.
         closed_cells = [c for c in result.cells if c.is_closed]
-        current_stock = closed_cells[-1].adapted_stock if closed_cells else data.opening_stock
+        current_stock = closed_cells[-1].adapted_stock if closed_cells else result.opening_stock
 
         product = products[pair.product_id]
         params = resolve_params(product, suppliers.get(product.supplier_id or -1), app_settings)
@@ -105,7 +109,7 @@ def build_purchase_plan(
         suggestion = suggest_purchase(
             weeks=future_weeks,
             demand=demand,
-            in_transit=data.in_transit,
+            in_transit=in_transit,
             opening_stock=current_stock,
             params=params,
             today=today,

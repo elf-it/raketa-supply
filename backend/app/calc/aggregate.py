@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
+from operator import attrgetter
 
 from .types import SeriesResult, Status, WeekCell
 
@@ -19,8 +20,15 @@ ADDITIVE_FIELDS = (
     "real_stock",
     "adapted_stock",
     "supply",
+    "in_transit",
     "shortage_units",
 )
+
+#: Все складываемые показатели ячейки одним обращением.
+#: Поимённый ``getattr`` на каждый показатель каждой ячейки — это на итоге
+#: по тысяче позиций четверть миллиона вызовов из Python; здесь их столько же,
+#: сколько ячеек, а складывает их уже ``sum``.
+_additive = attrgetter(*ADDITIVE_FIELDS)
 
 _STATUS_RANK = {Status.OK: 0, Status.OVER: 1, Status.SHORT: 2}
 
@@ -48,8 +56,9 @@ def aggregate_cells(series: Sequence[SeriesResult], weeks: Sequence[str]) -> lis
             continue
 
         agg.is_closed = all(c.is_closed for c in cells)
-        for field in ADDITIVE_FIELDS:
-            setattr(agg, field, sum(getattr(c, field) for c in cells))
+        totals = map(sum, zip(*map(_additive, cells), strict=True))
+        for field, total in zip(ADDITIVE_FIELDS, totals, strict=True):
+            setattr(agg, field, total)
 
         facts = [c.fact_sales for c in cells if c.fact_sales is not None]
         agg.fact_sales = sum(facts) if facts else None
