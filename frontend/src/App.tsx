@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api, setUnauthorizedHandler } from './api';
 import { BasePotentialPage } from './components/BasePotentialPage';
@@ -58,6 +58,16 @@ const TABS: { id: Tab; label: string }[] = [
 /** На каких экранах имеет смысл общая панель фильтров. */
 const FILTERED_TABS: Tab[] = ['matrix', 'purchase', 'potential', 'journal'];
 
+/**
+ * Сколько строк матрицы просить за раз.
+ *
+ * Выборка приходит окнами: на тысяче позиций ответ целиком — шесть мегабайт,
+ * и браузер разбирает их раньше, чем успевает показать первую строку. Страница
+ * в двести строк на горизонте в тридцать недель — около мегабайта: первый экран
+ * появляется сразу, остальное подгружается при прокрутке.
+ */
+const PAGE_ROWS = 200;
+
 export default function App() {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -78,6 +88,7 @@ export default function App() {
   const [purchase, setPurchase] = useState<PurchasePlan | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
   const [selectedPairs, setSelectedPairs] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -85,6 +96,16 @@ export default function App() {
   const [chartNotice, setChartNotice] = useState<string | null>(null);
   const [onlyNeeded, setOnlyNeeded] = useState(true);
   const [creatingOrder, setCreatingOrder] = useState(false);
+
+  /** Сколько строк матрицы уже загружено: страницы идут подряд от начала выборки. */
+  const loadedRows = useRef(0);
+  /**
+   * Номер последнего запроса матрицы. Ответ более старого запроса выбрасывается:
+   * иначе страница, заказанная до смены фильтров, приклеилась бы к новой выборке.
+   */
+  const requestSeq = useRef(0);
+  /** Защёлка дозапроса: прокрутка зовёт его десятками событий подряд. */
+  const moreBusy = useRef(false);
 
   // Стабильные ссылки: иначе дочерние экраны перезапрашивают данные на каждый рендер.
   const pageFilters = useMemo(
@@ -135,9 +156,13 @@ export default function App() {
     // Экраны потенциала и сезонности грузят себя сами.
     if (!user || (tab !== 'matrix' && tab !== 'purchase')) return;
     setLoading(true);
+    const seq = ++requestSeq.current;
     try {
       if (tab === 'matrix') {
-        setMatrix(await api.matrix(filters));
+        const fresh = await api.matrix(filters, { limit: PAGE_ROWS });
+        if (seq !== requestSeq.current) return;
+        loadedRows.current = fresh.rows.length;
+        setMatrix(fresh);
       } else {
         setPurchase(await api.purchase(filters, onlyNeeded));
       }
@@ -145,9 +170,56 @@ export default function App() {
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setLoading(false);
+      // Запрос мог устареть, пока ждали ответ: тогда полосу «обновляю» снимает
+      // тот, кто пришёл позже.
+      if (seq === requestSeq.current) setLoading(false);
     }
   }, [filters, onlyNeeded, tab, user]);
+
+  /**
+   * Перечитывает уже загруженные строки после правки.
+   *
+   * Правка прогноза меняет не только свою ячейку: пересчитываются сток, статус
+   * строки, итоги и KPI. Страницы идут подряд от начала выборки, поэтому вернуть
+   * экран в прежний вид можно одним запросом на всю загруженную длину.
+   */
+  const refresh = useCallback(async () => {
+    const seq = ++requestSeq.current;
+    const fresh = await api.matrix(filters, { limit: Math.max(PAGE_ROWS, loadedRows.current) });
+    if (seq !== requestSeq.current) return;
+    loadedRows.current = fresh.rows.length;
+    setMatrix(fresh);
+  }, [filters]);
+
+  /** Следующая страница строк: её просит таблица, когда прокрутка подошла к концу. */
+  const loadMore = useCallback(async () => {
+    if (moreBusy.current || !matrix) return;
+    const offset = loadedRows.current;
+    if (offset >= matrix.context.row_count) return;
+    moreBusy.current = true;
+    setLoadingMore(true);
+    const seq = requestSeq.current;
+    try {
+      const next = await api.matrix(filters, { offset, limit: PAGE_ROWS });
+      if (seq !== requestSeq.current) return;
+      setMatrix((prev) => {
+        // Страница встаёт только на свой стык: в любом другом случае выборка
+        // под ней уже изменилась, и приклеивать строки некуда.
+        if (!prev || next.context.row_offset !== prev.rows.length) return prev;
+        const rows = [...prev.rows, ...next.rows];
+        loadedRows.current = rows.length;
+        // Итоги и KPI берутся из свежего ответа — они по всей выборке и не
+        // зависят от окна; окно переписывается на то, что теперь на экране.
+        return { ...next, rows, context: { ...next.context, row_offset: 0, row_limit: rows.length } };
+      });
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      moreBusy.current = false;
+      setLoadingMore(false);
+    }
+  }, [filters, matrix]);
 
   useEffect(() => {
     void reload();
@@ -195,13 +267,11 @@ export default function App() {
     [chartKeys],
   );
 
+  // Пары всей выборки, а не только загруженных строк: сервер присылает их список
+  // целиком. Иначе «отметить все» и массовая правка «ко всем строкам под фильтрами»
+  // относились бы к той странице, до которой человек успел доскроллить.
   const skuRowIds = useMemo(
-    () =>
-      matrix?.level === 'sku'
-        ? matrix.rows
-            .map((row) => row.meta.pair_id)
-            .filter((id): id is number => id !== undefined)
-        : [],
+    () => (matrix?.level === 'sku' ? (matrix.context.pair_ids ?? []) : []),
     [matrix],
   );
 
@@ -225,7 +295,7 @@ export default function App() {
       setBulkBusy(true);
       try {
         await api.bulkAdjust(request);
-        setMatrix(await api.matrix(filters));
+        await refresh();
         setError(null);
       } catch (err) {
         setError((err as Error).message);
@@ -233,7 +303,7 @@ export default function App() {
         setBulkBusy(false);
       }
     },
-    [filters],
+    [refresh],
   );
 
   const createOrder = useCallback(async (rows: PurchaseRow[]) => {
@@ -267,8 +337,9 @@ export default function App() {
           week,
           value === null ? { clear: [field] } : { [field]: value },
         );
-        // Изменение прогноза пересчитывает остатки и закупку — перечитываем целиком.
-        setMatrix(await api.matrix(filters));
+        // Изменение прогноза пересчитывает остатки и закупку — перечитываем
+        // всё загруженное: правка меняет и итоги под таблицей.
+        await refresh();
         setError(null);
       } catch (err) {
         setError((err as Error).message);
@@ -280,7 +351,7 @@ export default function App() {
         });
       }
     },
-    [filters],
+    [refresh],
   );
 
   const signOut = async () => {
@@ -487,9 +558,13 @@ export default function App() {
             selectedPairs={selectedPairs}
             onToggleRow={toggleRow}
             onToggleAll={toggleAll}
+            selectableCount={skuRowIds.length}
             canEdit={canEdit}
             chartKeys={chartKeys}
             onPickRow={pickRow}
+            rowCount={matrix.context.row_count}
+            loadingMore={loadingMore}
+            onNeedMore={() => void loadMore()}
           />
 
           <p className="footnote">

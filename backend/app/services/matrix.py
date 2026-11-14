@@ -108,6 +108,17 @@ class Matrix:
     totals: Row
     kpi: dict
     context: dict
+    #: Сколько строк в выборке целиком: ``rows`` может быть окном из них.
+    row_count: int = 0
+    #: С какой строки выборки начинается ``rows``.
+    offset: int = 0
+
+
+def _window(items: list, offset: int, limit: int | None) -> list:
+    """Окно строк: ``limit=None`` — вся выборка, начиная с ``offset``."""
+    if limit is None:
+        return items[offset:]
+    return items[offset : offset + limit]
 
 
 # --------------------------------------------------------------------------- настройки
@@ -341,6 +352,8 @@ def build_matrix(
     filters: MatrixFilters,
     today: date | None = None,
     status: Status | None = None,
+    offset: int = 0,
+    limit: int | None = None,
 ) -> Matrix:
     """Матрица по уровню просмотра.
 
@@ -349,6 +362,16 @@ def build_matrix(
     а статус — результат расчёта, и отобрать по нему можно только после того, как
     расчёт прошёл. Хранить их рядом значило бы обещать, что ``load_pairs`` умеет
     фильтровать по статусу.
+
+    ``offset`` и ``limit`` задают окно строк. Урезается только ``rows``: итоги, KPI
+    и счётчики считаются по всей выборке, иначе итог под таблицей расходился бы
+    с тем, что над ним, стоило прокрутить страницу. ``limit=None`` отдаёт выборку
+    целиком — так работают выгрузка в XLSX и тесты; окно задаёт клиент, а не сервер:
+    сервер обязан уметь отдать всё, экран — не обязан всё просить.
+
+    Расчёт ``compute_series`` всё равно идёт по всем парам выборки: без них не
+    собрать ни итоги, ни отбор по статусу. Окно экономит сборку показателей по
+    неделям и передачу — на тысяче позиций это основная часть ответа.
     """
     today = today or date.today()
     app_settings = load_app_settings(session)
@@ -367,6 +390,7 @@ def build_matrix(
 
     if level is Level.SKU:
         shown = [pair for pair in pairs if status is None or results[pair.id].status is status]
+        row_count = len(shown)
         rows = [
             Row(
                 key=f"pair-{pair.id}",
@@ -387,7 +411,7 @@ def build_matrix(
                 },
                 metrics=_row_metrics(results[pair.id], weeks),
             )
-            for pair in shown
+            for pair in _window(shown, offset, limit)
         ]
     else:
         groups: dict[tuple, list[Pair]] = defaultdict(list)
@@ -396,8 +420,7 @@ def build_matrix(
                 groups[(pair.store_id, pair.store_name)].append(pair)
             else:
                 groups[(pair.category_id, pair.category_name or "Без категории")].append(pair)
-        rows = []
-        shown = []
+        visible: list[tuple[object, str, list[Pair], SeriesResult]] = []
         for (key, title), group in sorted(groups.items(), key=lambda kv: str(kv[0][1])):
             agg = aggregate([results[p.id] for p in group], weeks)
             # Статус группы — худший из статусов её позиций, и отбирается группа целиком:
@@ -405,21 +428,24 @@ def build_matrix(
             # в список своих дефицитных артикулов.
             if status is not None and agg.status is not status:
                 continue
-            shown.extend(group)
-            rows.append(
-                Row(
-                    key=f"{level.value}-{key}",
-                    title=title,
-                    subtitle=f"{len(group)} SKU",
-                    status=agg.status,
-                    meta={
-                        "group_id": key,
-                        "sku_count": len(group),
-                        "editable": False,
-                    },
-                    metrics=_row_metrics(agg, weeks),
-                )
+            visible.append((key, title, group, agg))
+        row_count = len(visible)
+        shown = [pair for _, _, group, _ in visible for pair in group]
+        rows = [
+            Row(
+                key=f"{level.value}-{key}",
+                title=title,
+                subtitle=f"{len(group)} SKU",
+                status=agg.status,
+                meta={
+                    "group_id": key,
+                    "sku_count": len(group),
+                    "editable": False,
+                },
+                metrics=_row_metrics(agg, weeks),
             )
+            for key, title, group, agg in _window(visible, offset, limit)
+        ]
 
     # Итоги и KPI считаются по показанным строкам: отбор по статусу — такая же выборка,
     # как магазин или категория, и итог под таблицей должен сходиться с тем, что над ним.
@@ -439,6 +465,8 @@ def build_matrix(
         rows=rows,
         totals=totals,
         kpi=build_kpi(shown_results, weeks, last_closed, app_settings),
+        row_count=row_count,
+        offset=offset,
         context={
             "last_closed_week": last_closed,
             "horizon_weeks": app_settings.horizon_weeks,
@@ -447,6 +475,15 @@ def build_matrix(
             #: Сколько позиций попало под остальные фильтры: по разнице видно,
             #: что именно скрыл отбор по статусу.
             "sku_count_total": len(pairs),
+            #: Окно строк: сколько их в выборке и какой кусок отдан.
+            "row_count": row_count,
+            "row_offset": offset,
+            "row_limit": limit,
+            #: Пары всей выборки, а не только окна. По этому списку работают
+            #: «отметить все» и массовая правка: иначе правка «ко всем строкам»
+            #: молча накрыла бы одну подгруженную страницу. Это идентификаторы,
+            #: не показатели, — на тысяче позиций десяток килобайт.
+            "pair_ids": [pair.id for pair in shown] if level is Level.SKU else None,
             "filters": {
                 "store_id": filters.store_id,
                 "category_id": filters.category_id,

@@ -408,6 +408,19 @@ table.matrix tr.spacer td {
   background: var(--surface);
 }
 
+/* Строка дозагрузки: кнопка и счётчик «показано N из M» под последним блоком. */
+table.matrix tr.more td {
+  position: sticky;
+  left: 0;
+  padding: 10px 12px;
+  background: var(--surface);
+  text-align: left;
+}
+
+table.matrix tr.more button {
+  margin-right: 10px;
+}
+
 table.matrix tr.block-end td,
 table.matrix tr.block-end th {
   border-bottom: 2px solid var(--border-strong);

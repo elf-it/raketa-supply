@@ -98,7 +98,16 @@ export const api = {
   stores: () => request<Store[]>('/catalog/stores'),
   categories: () => request<Category[]>('/catalog/categories'),
 
-  matrix: (filters: MatrixFilters) => request<Matrix>(`/matrix?${query(filters)}`),
+  /**
+   * Матрица с окном строк. Итоги, KPI и счётчики в ответе — по всей выборке,
+   * режутся только строки; `window` пусто — вся выборка, как для выгрузки.
+   */
+  matrix: (filters: MatrixFilters, window?: { offset?: number; limit?: number }) => {
+    const params = new URLSearchParams(query(filters));
+    if (window?.offset) params.set('offset', String(window.offset));
+    if (window?.limit) params.set('limit', String(window.limit));
+    return request<Matrix>(`/matrix?${params.toString()}`);
+  },
 
   purchase: (filters: Omit<MatrixFilters, 'level'>, onlyNeeded: boolean) =>
     request<PurchasePlan>(`/purchase?only_needed=${onlyNeeded}&${query(filters)}`),

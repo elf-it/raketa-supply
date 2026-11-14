@@ -21,9 +21,15 @@ def get_matrix(
     product_id: int | None = Query(None, description="Фильтр по товару"),
     search: str | None = Query(None, description="Поиск по названию, артикулу или nmId"),
     row_status: Status | None = Query(None, alias="status", description="Отбор строк по статусу"),
+    offset: int = Query(0, ge=0, description="С какой строки выборки отдавать"),
+    limit: int | None = Query(None, ge=1, description="Сколько строк отдать; пусто — все"),
     session: Session = Depends(get_session),
 ) -> MatrixOut:
-    """Один экран, три уровня агрегации, без дерева строк (ТЗ, стр. 3)."""
+    """Один экран, три уровня агрегации, без дерева строк (ТЗ, стр. 3).
+
+    ``offset`` и ``limit`` режут только строки: итоги, KPI и счётчики в ``context``
+    считаются по всей выборке. Сколько в ней строк всего — в ``context.row_count``.
+    """
     matrix = build_matrix(
         session,
         level,
@@ -34,6 +40,8 @@ def get_matrix(
             search=search,
         ),
         status=row_status,
+        offset=offset,
+        limit=limit,
     )
     return MatrixOut(
         level=matrix.level,
@@ -55,7 +63,12 @@ def export_matrix(
     row_status: Status | None = Query(None, alias="status"),
     session: Session = Depends(get_session),
 ) -> Response:
-    """Те же строки и недели, что на экране: файл собирается тем же сервисом."""
+    """Те же строки и недели, что на экране: файл собирается тем же сервисом.
+
+    Окна строк здесь нет намеренно: в файл идёт вся выборка под фильтрами, а не
+    та страница, до которой человек успел доскроллить. Выгрузка — как раз способ
+    получить всё целиком.
+    """
     matrix = build_matrix(
         session,
         level,

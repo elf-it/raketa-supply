@@ -47,6 +47,11 @@ export const GROUP_METRICS = GROUP_METRIC_OPTIONS;
  * Цена решения: поиск по странице (Ctrl+F) и печать видят только то, что
  * сейчас в DOM. Поиск по артикулу и названию в системе свой, серверный,
  * а печать идёт через выгрузку в XLSX — поэтому обмен признан равноценным.
+ *
+ * Строки при этом приходят не все сразу: сервер отдаёт окно выборки, и таблица
+ * просит следующее, когда прокрутка подошла к концу загруженного. Виртуализация
+ * и постраничная выдача — разные вещи: первая решает, сколько строк живёт в DOM,
+ * вторая — сколько их приехало по сети.
  */
 const OVERSCAN = 3;
 /** Ниже этого числа строк таблица рисуется целиком: виртуализация не бесплатна. */
@@ -83,6 +88,12 @@ interface Props {
   selectedPairs: Set<number>;
   onToggleRow: (pairId: number) => void;
   onToggleAll: () => void;
+  /**
+   * Сколько строк можно отметить во всей выборке, а не в загруженной её части:
+   * «отметить все» работает по списку пар с сервера, и флажок в шапке должен
+   * показывать состояние этого же списка.
+   */
+  selectableCount: number;
   /** Роль «просмотр» видит те же числа, но ничего не правит. */
   canEdit: boolean;
   /**
@@ -91,6 +102,11 @@ interface Props {
    */
   chartKeys: string[];
   onPickRow: (key: string) => void;
+  /** Сколько строк в выборке целиком: `rows` — загруженная её часть. */
+  rowCount: number;
+  loadingMore: boolean;
+  /** Просит следующую страницу строк. Вызывается и прокруткой, и кнопкой. */
+  onNeedMore: () => void;
 }
 
 export function WeekMatrix({
@@ -104,9 +120,13 @@ export function WeekMatrix({
   selectedPairs,
   onToggleRow,
   onToggleAll,
+  selectableCount,
   canEdit,
   chartKeys,
   onPickRow,
+  rowCount,
+  loadingMore,
+  onNeedMore,
 }: Props) {
   // Цвет строки появляется только при сравнении: на графике одной строки цветная
   // точка в таблице обозначала бы линию, которой там нет.
@@ -160,6 +180,31 @@ export function WeekMatrix({
     };
   }, [virtual]);
 
+  // Строки приходят страницами: сервер отдаёт окно выборки, остальное догружается.
+  const hasMore = rows.length < rowCount;
+  const needMore = useRef(onNeedMore);
+  useEffect(() => {
+    needMore.current = onNeedMore;
+  }, [onNeedMore]);
+
+  // Дозапрос привязан к прокрутке, а не только к кнопке: виртуализация и так
+  // живёт на прокрутке, и человек просто продолжает листать. Запас — экран
+  // высоты, чтобы страница пришла раньше, чем строки кончатся. Первый вызов
+  // без прокрутки нужен для случая, когда загруженное помещается целиком:
+  // тогда таблица добирает страницы, пока не появится, что прокручивать.
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!hasMore || !box) return;
+    const check = () => {
+      if (box.scrollHeight - box.scrollTop - box.clientHeight < box.clientHeight) {
+        needMore.current();
+      }
+    };
+    check();
+    box.addEventListener('scroll', check, { passive: true });
+    return () => box.removeEventListener('scroll', check);
+  }, [hasMore, rows.length]);
+
   const ready = virtual && blockH > 0 && view.height > 0;
   const first = ready ? Math.max(0, Math.floor((view.top - bodyTop) / blockH) - OVERSCAN) : 0;
   const last = ready
@@ -203,19 +248,19 @@ export function WeekMatrix({
         <thead>
           <tr>
             <th className="col-name" rowSpan={2}>
-              {level === 'sku' && rows.length > 0 && canEdit && (
+              {level === 'sku' && selectableCount > 0 && canEdit && (
                 <input
                   type="checkbox"
                   className="row-check"
-                  checked={selectedPairs.size === rows.length}
+                  checked={selectedPairs.size === selectableCount}
                   ref={(node) => {
                     if (node) {
                       node.indeterminate =
-                        selectedPairs.size > 0 && selectedPairs.size < rows.length;
+                        selectedPairs.size > 0 && selectedPairs.size < selectableCount;
                     }
                   }}
                   onChange={onToggleAll}
-                  title="Отметить все строки"
+                  title={`Отметить все строки выборки (${selectableCount})`}
                 />
               )}
               {level === 'store' ? 'Магазин' : level === 'category' ? 'Категория' : 'Артикул / товар'}
@@ -278,7 +323,19 @@ export function WeekMatrix({
               <td colSpan={colSpan} style={{ height: padBottom }} />
             </tr>
           )}
-          {rows.length === 0 && (
+          {hasMore && (
+            <tr className="more">
+              <td colSpan={colSpan}>
+                <button className="ghost small" onClick={onNeedMore} disabled={loadingMore}>
+                  {loadingMore ? 'Подгружаю…' : 'Показать ещё'}
+                </button>
+                <span className="muted">
+                  показано {rows.length} из {rowCount} — остальные подгружаются при прокрутке
+                </span>
+              </td>
+            </tr>
+          )}
+          {rows.length === 0 && !hasMore && (
             <tr>
               <td className="empty" colSpan={colSpan}>
                 Под фильтры ничего не попало
