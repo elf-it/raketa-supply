@@ -28,6 +28,20 @@ EDITOR = ("editor@raketa.local", "demo-editor-2026", "Анна, снабжени
 VIEWER = ("viewer@raketa.local", "demo-viewer-2026", "Пётр, руководитель")
 
 
+@pytest.fixture(autouse=True)
+def clean_login_guard():
+    """Счётчик неудачных попыток входа — общий на процесс, тесты его копят.
+
+    Без очистки тест, подбирающий пароль, запирал бы вход следующим тестам
+    и ронял бы их ответом 429 вместо ожидаемого 401.
+    """
+    from app.ratelimit import get_login_guard
+
+    get_login_guard().reset()
+    yield
+    get_login_guard().reset()
+
+
 @pytest.fixture(scope="session")
 def seeded_db():
     from app import seed

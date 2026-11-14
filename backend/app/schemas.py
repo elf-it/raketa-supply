@@ -47,6 +47,13 @@ class UserOut(BaseModel_):
     created_at: UtcDatetime
 
 
+class PasswordChangeIn(BaseModel_):
+    """Смена собственного пароля: прежний подтверждает, что это тот же человек."""
+
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=8, max_length=256)
+
+
 class UserCreateIn(BaseModel_):
     email: str = Field(min_length=3, max_length=190)
     full_name: str = Field(min_length=1, max_length=128)

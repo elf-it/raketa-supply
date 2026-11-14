@@ -376,6 +376,11 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(128))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    #: Когда пароль задали в последний раз. Сессии, выданные раньше этой отметки,
+    #: больше не принимаются: смена пароля должна закрывать чужой вход сразу,
+    #: а не через двенадцать часов, когда истечёт уже выданный токен.
+    #: ``None`` — пароль не меняли с момента заведения, отсекать нечего.
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
 
     @property
     def display_name(self) -> str:

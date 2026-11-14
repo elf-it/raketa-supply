@@ -41,6 +41,15 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(_prepare(password), bcrypt.gensalt()).decode("ascii")
 
 
+def password_changed_now() -> datetime:
+    """Отметка «пароль сменили сейчас» — в UTC и без зоны, как хранит база.
+
+    По ней сессии, выданные раньше, перестают приниматься (``api/deps.py``).
+    Выставляют её все, кто меняет пароль: и сам человек, и администратор.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 def verify_password(password: str, password_hash: str) -> bool:
     try:
         return bcrypt.checkpw(_prepare(password), password_hash.encode("ascii"))

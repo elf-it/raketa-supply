@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import time
+from contextlib import contextmanager
+
 import pytest
 from conftest import ADMIN, EDITOR, VIEWER
 
@@ -354,6 +357,159 @@ def test_disabling_cuts_the_session_already_issued(admin_client):
 
         assert theirs.get("/api/v1/auth/me").status_code == 401
         assert theirs.get("/api/v1/matrix?level=sku").status_code == 401
+
+
+# ------------------------------------------------------------- смена своего пароля
+
+
+@contextmanager
+def signed_in(email: str, password: str):
+    """Отдельный клиент со своей сессией — как второй браузер."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/auth/login", json={"email": email, "password": password})
+        assert response.status_code == 200, response.text
+        yield client
+
+
+def test_password_change_requires_login(anon_client):
+    response = anon_client.post(
+        "/api/v1/auth/me/password",
+        json={"current_password": "x" * 12, "new_password": "y" * 12},
+    )
+    assert response.status_code == 401
+
+
+def test_person_changes_own_password(admin_client, anon_client):
+    """Человеку не нужен администратор, чтобы сменить себе пароль."""
+    admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "selfserve@raketa.local",
+            "full_name": "Сам себе",
+            "role": "viewer",
+            "password": "первый-длинный-пароль",
+        },
+    )
+
+    with signed_in("selfserve@raketa.local", "первый-длинный-пароль") as theirs:
+        changed = theirs.post(
+            "/api/v1/auth/me/password",
+            json={
+                "current_password": "первый-длинный-пароль",
+                "new_password": "второй-длинный-пароль",
+            },
+        )
+        assert changed.status_code == 200
+        # Своя сессия переживает смену: иначе человека выбрасывало бы на вход.
+        assert theirs.get("/api/v1/auth/me").status_code == 200
+
+    old = anon_client.post(
+        "/api/v1/auth/login",
+        json={"email": "selfserve@raketa.local", "password": "первый-длинный-пароль"},
+    )
+    assert old.status_code == 401
+
+    new = anon_client.post(
+        "/api/v1/auth/login",
+        json={"email": "selfserve@raketa.local", "password": "второй-длинный-пароль"},
+    )
+    assert new.status_code == 200
+    anon_client.post("/api/v1/auth/logout")
+    anon_client.cookies.clear()
+
+
+def test_password_change_needs_the_current_password(admin_client):
+    """Уведённой куки не должно хватать, чтобы забрать учётную запись насовсем."""
+    admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "stolen@raketa.local",
+            "full_name": "Чужая сессия",
+            "role": "viewer",
+            "password": "настоящий-длинный-пароль",
+        },
+    )
+
+    with signed_in("stolen@raketa.local", "настоящий-длинный-пароль") as theirs:
+        response = theirs.post(
+            "/api/v1/auth/me/password",
+            json={"current_password": "мимо-пароль", "new_password": "новый-длинный-пароль"},
+        )
+        # Не 401: интерфейс понял бы его как «сессия кончилась» и выбросил
+        # человека на экран входа вместе с формой, которую он заполнял.
+        assert response.status_code == 409
+        assert "Текущий пароль" in response.json()["detail"]
+        assert theirs.get("/api/v1/auth/me").status_code == 200
+
+        same = theirs.post(
+            "/api/v1/auth/me/password",
+            json={
+                "current_password": "настоящий-длинный-пароль",
+                "new_password": "настоящий-длинный-пароль",
+            },
+        )
+        assert same.status_code == 409
+
+        short = theirs.post(
+            "/api/v1/auth/me/password",
+            json={"current_password": "настоящий-длинный-пароль", "new_password": "1234"},
+        )
+        assert short.status_code == 422
+
+
+def test_password_change_cuts_the_other_sessions(admin_client):
+    """Ради этого пароль и меняют: открытый где-то ещё вход должен закрыться."""
+    admin_client.post(
+        "/api/v1/auth/users",
+        json={
+            "email": "two-browsers@raketa.local",
+            "full_name": "Два браузера",
+            "role": "viewer",
+            "password": "первый-длинный-пароль",
+        },
+    )
+
+    with (
+        signed_in("two-browsers@raketa.local", "первый-длинный-пароль") as elsewhere,
+        signed_in("two-browsers@raketa.local", "первый-длинный-пароль") as here,
+    ):
+        assert elsewhere.get("/api/v1/auth/me").status_code == 200
+        # ``iat`` округлён до секунды, поэтому отметка смены должна лечь
+        # в следующую: иначе исход теста зависел бы от скорости bcrypt.
+        time.sleep(1.1)
+
+        changed = here.post(
+            "/api/v1/auth/me/password",
+            json={
+                "current_password": "первый-длинный-пароль",
+                "new_password": "второй-длинный-пароль",
+            },
+        )
+        assert changed.status_code == 200
+
+        assert here.get("/api/v1/auth/me").status_code == 200
+        assert elsewhere.get("/api/v1/auth/me").status_code == 401
+        assert elsewhere.get("/api/v1/matrix?level=sku").status_code == 401
+
+
+def test_admin_keeps_working_after_changing_own_password(admin_client):
+    """Администратор может задать пароль и себе — экран пользователей это умеет."""
+    me = admin_client.get("/api/v1/auth/me").json()
+    assert (
+        admin_client.put(
+            f"/api/v1/auth/users/{me['id']}", json={"password": "временный-длинный-пароль"}
+        ).status_code
+        == 200
+    )
+    # Своя сессия продолжается: ручка выдала новую куку взамен отсечённой.
+    assert admin_client.get("/api/v1/auth/me").status_code == 200
+
+    admin_client.put(f"/api/v1/auth/users/{me['id']}", json={"password": ADMIN[1]})
+    assert admin_client.get("/api/v1/auth/me").status_code == 200
 
 
 # ------------------------------------------------------------------------ журнал

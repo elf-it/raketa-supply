@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, setUnauthorizedHandler } from './api';
 import { BasePotentialPage } from './components/BasePotentialPage';
 import { BulkPanel } from './components/BulkPanel';
+import { ChangePassword } from './components/ChangePassword';
 import { JournalPage } from './components/JournalPage';
 import { KpiBar } from './components/KpiBar';
 import { LoginPage } from './components/LoginPage';
@@ -74,6 +75,7 @@ export default function App() {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const [level, setLevel] = useState<Level>('sku');
   const [storeId, setStoreId] = useState<number | null>(null);
@@ -362,6 +364,7 @@ export default function App() {
     } finally {
       setUser(null);
       setSessionExpired(false);
+      setChangingPassword(false);
       setMatrix(null);
       setPurchase(null);
     }
@@ -396,6 +399,9 @@ export default function App() {
             {user.full_name}
             <span className={`badge role ${user.role}`}>{ROLE_LABELS[user.role]}</span>
           </span>
+          <button className="link" onClick={() => setChangingPassword((open) => !open)}>
+            Сменить пароль
+          </button>
           <button className="link" onClick={() => void signOut()}>
             Выйти
           </button>
@@ -432,6 +438,8 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {changingPassword && <ChangePassword onClose={() => setChangingPassword(false)} />}
 
       <div className="filters" hidden={!FILTERED_TABS.includes(tab)}>
         <input

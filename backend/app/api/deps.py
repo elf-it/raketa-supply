@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 from fastapi import Cookie, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -38,7 +40,34 @@ def current_user(
     # Отключённый пользователь не должен доживать на уже выданном токене.
     if user is None or not user.is_active:
         raise UNAUTHORIZED
+    if _issued_before_password_change(payload, user):
+        raise UNAUTHORIZED
     return user
+
+
+def _issued_before_password_change(payload: dict, user: User) -> bool:
+    """Выдан ли токен до того, как пароль сменили.
+
+    Смена пароля должна закрывать чужой вход сразу, а не через двенадцать часов,
+    когда истечёт уже выданный токен, — иначе смена пароля не решает ровно ту
+    задачу, ради которой её делают.
+
+    ``iat`` в JWT хранится в целых секундах, поэтому и отметка сравнивается
+    в целых: иначе кука, выданная ручкой смены пароля в ответ на саму смену,
+    отвергала бы себя же — её ``iat`` округлён вниз, а отметка с долями секунды
+    оказалась бы позже. Цена округления — чужая сессия, выданная в ту же
+    секунду, что и смена, проживёт до следующего совпадения; секунда роли
+    не играет, а предсказуемость — играет.
+    """
+    changed = user.password_changed_at
+    if changed is None:
+        return False
+    issued = payload.get("iat")
+    if not isinstance(issued, int | float):
+        # Токена без ``iat`` мы не выдаём; чужой — тем более не нужен.
+        return True
+    moment = changed if changed.tzinfo is not None else changed.replace(tzinfo=UTC)
+    return int(issued) < int(moment.timestamp())
 
 
 def require_role(minimum: Role):

@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_session
 from ..models import ROLE_ORDER, Role, User
-from ..schemas import LoginIn, UserCreateIn, UserOut, UserUpdateIn
-from ..security import SESSION_COOKIE, create_token, hash_password, verify_password
+from ..ratelimit import get_login_guard
+from ..schemas import LoginIn, PasswordChangeIn, UserCreateIn, UserOut, UserUpdateIn
+from ..security import (
+    SESSION_COOKIE,
+    create_token,
+    hash_password,
+    password_changed_now,
+    verify_password,
+)
 from .deps import current_user, require_admin
 
 router = APIRouter(prefix="/auth", tags=["Доступ"])
@@ -33,24 +40,50 @@ def _set_session_cookie(response: Response, token: str) -> None:
     )
 
 
+def _too_many_attempts(seconds: int) -> HTTPException:
+    minutes = max(1, -(-seconds // 60))
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=f"Слишком много неудачных попыток входа. Попробуйте через {minutes} мин.",
+        headers={"Retry-After": str(seconds)},
+    )
+
+
 @router.post("/login", response_model=UserOut, summary="Вход")
-def login(payload: LoginIn, response: Response, session: Session = Depends(get_session)) -> UserOut:
+def login(
+    payload: LoginIn,
+    request: Request,
+    response: Response,
+    session: Session = Depends(get_session),
+) -> UserOut:
     """Выдаёт сессионную куку.
 
     Ответ одинаков и для несуществующей почты, и для неверного пароля,
     и для отключённого пользователя: иначе форма входа превращается
     в способ узнать, кто заведён в системе.
+
+    Неудачные попытки считаются (``app/ratelimit.py``): после лимита вход
+    закрывается на окно времени и отвечает 429. Счётчик проверяется до сверки
+    пароля — перебор не должен даже доходить до bcrypt.
     """
-    user = session.scalar(
-        select(User).where(func.lower(User.email) == payload.email.strip().lower())
-    )
+    email = payload.email.strip().lower()
+    address = request.client.host if request.client else "-"
+    guard = get_login_guard()
+    wait = guard.retry_after(email, address)
+    if wait:
+        raise _too_many_attempts(wait)
+
+    user = session.scalar(select(User).where(func.lower(User.email) == email))
     if user is None or not user.is_active:
         # Пароль всё равно проверяем, чтобы ответ не был заметно быстрее.
         verify_password(payload.password, "$2b$12$" + "." * 53)
+        guard.failure(email, address)
         raise BAD_CREDENTIALS
     if not verify_password(payload.password, user.password_hash):
+        guard.failure(email, address)
         raise BAD_CREDENTIALS
 
+    guard.success(email, address)
     _set_session_cookie(response, create_token(user.id, user.role.value))
     return UserOut.model_validate(user)
 
@@ -63,6 +96,39 @@ def logout(response: Response) -> dict:
 
 @router.get("/me", response_model=UserOut, summary="Текущий пользователь")
 def me(user: User = Depends(current_user)) -> UserOut:
+    return UserOut.model_validate(user)
+
+
+@router.post("/me/password", response_model=UserOut, summary="Сменить свой пароль")
+def change_my_password(
+    payload: PasswordChangeIn,
+    response: Response,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> UserOut:
+    """Смена собственного пароля: прежний пароль обязателен.
+
+    Прежний пароль спрашивается не для проверки памяти, а потому что сессия
+    могла остаться открытой на чужой машине: без него уведённой куки хватало бы,
+    чтобы забрать учётную запись насовсем.
+
+    Отказ отвечает 409, а не 401: 401 интерфейс понимает как «сессия кончилась»
+    и выбрасывает человека на экран входа вместе с формой, которую он заполнял.
+    Сессия тут как раз в порядке — не подошёл введённый пароль.
+
+    Все остальные сессии этого человека закрываются (``api/deps.py``), а взамен
+    выдаётся новая кука — та, из которой пришёл запрос, остаётся рабочей.
+    """
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=409, detail="Текущий пароль не подошёл")
+    if verify_password(payload.new_password, user.password_hash):
+        raise HTTPException(status_code=409, detail="Новый пароль совпадает с прежним")
+
+    user.password_hash = hash_password(payload.new_password)
+    user.password_changed_at = password_changed_now()
+    session.commit()
+
+    _set_session_cookie(response, create_token(user.id, user.role.value))
     return UserOut.model_validate(user)
 
 
@@ -104,6 +170,7 @@ def create_user(
 def update_user(
     user_id: int,
     payload: UserUpdateIn,
+    response: Response,
     actor: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ) -> UserOut:
@@ -141,6 +208,12 @@ def update_user(
         user.is_active = payload.is_active
     if payload.password is not None:
         user.password_hash = hash_password(payload.password)
+        # Новый пароль закрывает все открытые сессии этого человека: именно так
+        # поступают, когда учётную запись увели. Себе администратор при этом
+        # выдаёт новую куку, иначе вылетал бы на экран входа следующим запросом.
+        user.password_changed_at = password_changed_now()
+        if user.id == actor.id:
+            _set_session_cookie(response, create_token(user.id, user.role.value))
 
     session.commit()
     return UserOut.model_validate(user)

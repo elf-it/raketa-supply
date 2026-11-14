@@ -1464,6 +1464,49 @@ table.purchase.inner td {
   min-width: 190px;
 }
 
+/* Смена своего пароля: карточка под шапкой, а не модальное окно —
+   экран за ней остаётся виден, и закрывать её нечем, кроме «отмены». */
+.password-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--closed);
+  max-width: 760px;
+}
+
+.password-card h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.password-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.password-fields .login-field input {
+  min-width: 210px;
+}
+
+.password-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.password-card .inline-note,
+.password-card .inline-warning {
+  margin: 0;
+}
+
 .inline-note {
   color: var(--accent);
   background: var(--accent-soft);

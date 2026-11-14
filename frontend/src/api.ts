@@ -97,6 +97,14 @@ export const api = {
 
   logout: () => request<unknown>('/auth/logout', { method: 'POST' }),
 
+  // Смена своего пароля. Сервер требует прежний пароль и в ответ выдаёт новую
+  // куку: эта вкладка продолжает работать, остальные сессии закрываются.
+  changeMyPassword: (currentPassword: string, newPassword: string) =>
+    request<CurrentUser>('/auth/me/password', {
+      method: 'POST',
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }),
+
   // Управление пользователями. Ручки закрыты ролью на сервере: вкладка, спрятанная
   // от не-администратора, — удобство, а не защита.
   users: () => request<User[]>('/auth/users'),
