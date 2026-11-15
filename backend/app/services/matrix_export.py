@@ -297,6 +297,10 @@ PURCHASE_COLUMNS = [
     Column("Окно покрытия", 20),
     Column("Цена закупки, ₽", 17, MONEY),
     Column("Сумма, ₽", 15, MONEY),
+    # ROI и его слагаемые стоят рядом с суммой: по одному числу решение
+    # не принимают, а «распродастся за N недель» объясняет его целиком.
+    Column("ROI, % годовых", 16, PERCENT),
+    Column("Распродастся, нед.", 18, PERCENT),
     Column("Объём, м³", 12, VOLUME),
     Column("Срок поставки, дн.", 18, UNITS),
     Column("MOQ", 8, UNITS),
@@ -330,6 +334,8 @@ def _purchase_values(number: int, row: PurchaseRow) -> list[object]:
         window,
         round(row.params.cost_price, 2),
         round(s.cost, 2) if s.needed else None,
+        round(s.roi_percent, 1) if s.roi_percent is not None else None,
+        round(s.sell_out_weeks, 1) if s.sell_out_weeks is not None else None,
         round(s.volume_m3, 3) if s.needed else None,
         row.params.lead_time_days,
         row.params.moq,

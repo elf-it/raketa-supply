@@ -148,7 +148,7 @@ export function PurchasePanel({
       return next;
     });
 
-  const columns = 8;
+  const columns = 9;
 
   /** Общие для обоих режимов свойства строки: группировка их не меняет. */
   const rowProps = (row: PurchaseRow) => ({
@@ -234,6 +234,9 @@ export function PurchasePanel({
               <th>Заказать до</th>
               <th>Количество</th>
               <th>Стоимость</th>
+              <th title="Годовая доходность вложенных в заказ денег по валовой марже. Комиссия маркетплейса, логистика и хранение не вычтены: число годится для сравнения позиций между собой, а не как обещание доходности">
+                ROI, % год.
+              </th>
               <th>м³</th>
               <th>Приход</th>
             </tr>
@@ -271,6 +274,9 @@ export function PurchasePanel({
                   </th>
                   <td className="num strong">{qty(group.qty)}</td>
                   <td className="num">{moneyFormat.format(group.cost)}</td>
+                  {/* По группе ROI не складывается: это доходность на вложенный
+                      рубль, и сумма процентов смысла не имеет. */}
+                  <td />
                   <td className="num">{group.volume.toFixed(3)}</td>
                   <td />
                 </tr>
@@ -354,6 +360,15 @@ function PurchaseRows({
           )}
         </td>
         <td className="num">{row.needed ? moneyFormat.format(row.cost) : '—'}</td>
+        <td className="num">
+          {/* Пусто — не ноль: считать не из чего, если нет цены, себестоимости
+              или спроса. Рядом стоит срок распродажи: по одному проценту
+              решение не принимают. */}
+          {row.roi_percent != null ? `${Math.round(row.roi_percent)} %` : '—'}
+          {row.sell_out_weeks != null && (
+            <span className="rounded-from">за {row.sell_out_weeks.toFixed(1)} нед.</span>
+          )}
+        </td>
         <td className="num">{row.needed ? row.volume_m3.toFixed(3) : '—'}</td>
         <td>{row.arrival_week ?? '—'}</td>
       </tr>
@@ -468,6 +483,26 @@ function Explanation({ row }: { row: PurchaseRow }) {
           </>
         )}
       </p>
+      {/* ROI — число, которое нельзя оставить без объяснения: иначе его либо
+          не понимают, либо принимают за обещанную прибыль. */}
+      {row.roi_percent != null && row.sell_out_weeks != null && row.cycle_weeks != null && (
+        <p className="formula">
+          вложено <b>{moneyFormat.format(row.cost)}</b>, маржа{' '}
+          <b>
+            {Math.round(((row.params.price - row.params.cost_price) / row.params.cost_price) * 100)}{' '}
+            %
+          </b>
+          {', распродастся за '}
+          <b>{row.sell_out_weeks.toFixed(1)} нед.</b>, деньги заняты{' '}
+          <b>{row.cycle_weeks.toFixed(1)} нед.</b> с учётом срока поставки{' = '}
+          <b>{Math.round(row.roi_percent)} % годовых</b>
+          <span className="muted">
+            {' '}
+            — без комиссии маркетплейса, логистики и хранения: их в системе нет,
+            поэтому число годится для сравнения позиций, а не как обещание доходности
+          </span>
+        </p>
+      )}
       <Params row={row} />
     </div>
   );

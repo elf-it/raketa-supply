@@ -245,6 +245,14 @@ export interface PurchaseRow {
   window_demand: number;
   window_transit: number;
   stock_before: number;
+  /**
+   * Доходность вложенных в заказ денег, процентов годовых, и из чего она
+   * сложилась (задача C-11). Пусто — считать не из чего: нет цены,
+   * себестоимости или спроса; ноль означал бы «не окупается».
+   */
+  roi_percent: number | null;
+  sell_out_weeks: number | null;
+  cycle_weeks: number | null;
   params: {
     lead_time_days: number;
     moq: number;
@@ -252,6 +260,8 @@ export interface PurchaseRow {
     coverage_weeks: number;
     safety_weeks: number;
     cost_price: number;
+    /** Цена продажи: участвует только в ROI, на количество не влияет. */
+    price: number;
     volume_m3: number;
   };
 }

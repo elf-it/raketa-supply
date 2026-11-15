@@ -41,6 +41,9 @@ def _to_out(row: PurchaseRow) -> PurchaseRowOut:
         window_demand=s.window_demand,
         window_transit=s.window_transit,
         stock_before=s.stock_before,
+        roi_percent=s.roi_percent,
+        sell_out_weeks=s.sell_out_weeks,
+        cycle_weeks=s.cycle_weeks,
         params=PurchaseParamsOut.model_validate(row.params),
     )
 

@@ -1330,7 +1330,15 @@ table.purchase tr.detail-row td {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 10px;
-  display: inline-block;
+  /* Блок по ширине содержимого, а не inline-block: вторая такая же строка
+     (разбор ROI) вставала бы рядом с первой и уезжала за край экрана. */
+  display: block;
+  width: fit-content;
+  /* В таблице текст не переносится, а разбор ROI — это предложение, а не число:
+     без переноса оно уезжает за край вместе с таблицей (та же беда, что была
+     у истории цен). */
+  white-space: normal;
+  max-width: 900px;
 }
 
 .params {

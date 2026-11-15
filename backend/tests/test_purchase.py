@@ -2,6 +2,8 @@
 
 from datetime import date, timedelta
 
+from pytest import approx
+
 from app.calc import (
     CalcSettings,
     PurchaseParams,
@@ -177,3 +179,101 @@ def test_cost_and_volume_follow_quantity():
     assert result.qty > 0
     assert result.cost == result.qty * 10.0
     assert abs(result.volume_m3 - result.qty * 0.002) < 1e-9
+
+
+# ------------------------------------------------------------------------- ROI
+
+
+def test_roi_turns_margin_and_turnover_into_percent_per_year():
+    """Доходность вложенных денег: маржа, приведённая к году циклом заказа.
+
+    Себестоимость 100, цена 180 — маржа 80 %. Спрос 100 шт./нед., заказ на окно
+    в 4 недели без страхового запаса и без остатка — 400 шт., значит
+    распродастся за 4 недели. Срок поставки 14 дней добавляет две недели:
+    деньги заняты 6 недель, то есть 52 / 6 оборота в год.
+    """
+    params = PurchaseParams(
+        lead_time_days=14,
+        coverage_weeks=4,
+        safety_weeks=0.0,
+        moq=0,
+        pack_size=1,
+        cost_price=100.0,
+        price=180.0,
+    )
+
+    result = suggest_purchase(WEEKS, DEMAND, {}, opening_stock=0.0, params=params, today=TODAY)
+
+    assert result.qty == 400
+    assert result.sell_out_weeks == approx(4.0)
+    assert result.cycle_weeks == approx(6.0)
+    assert result.roi_percent == approx(0.8 * 52 / 6 * 100, rel=1e-6)
+
+
+def test_fast_position_with_small_margin_beats_slow_one_with_big_margin():
+    """Ради этого ROI и приводится к году: иначе сравнить их нечем.
+
+    У первой позиции маржа 30 % и оборот — месяц, у второй 80 % и полгода.
+    Денег хватает не на всё, и выбирать нужно первую.
+    """
+    fast = PurchaseParams(
+        lead_time_days=7, coverage_weeks=2, safety_weeks=0.0, cost_price=100.0, price=130.0
+    )
+    slow = PurchaseParams(
+        lead_time_days=7, coverage_weeks=20, safety_weeks=0.0, cost_price=100.0, price=180.0
+    )
+
+    quick = suggest_purchase(WEEKS, DEMAND, {}, opening_stock=0.0, params=fast, today=TODAY)
+    long = suggest_purchase(WEEKS, DEMAND, {}, opening_stock=0.0, params=slow, today=TODAY)
+
+    assert quick.roi_percent > long.roi_percent
+    assert quick.sell_out_weeks < long.sell_out_weeks
+
+
+def test_roi_is_empty_when_there_is_nothing_to_count_from():
+    """Пусто — не ноль: ноль означал бы «вложение не окупается»."""
+    no_price = PurchaseParams(coverage_weeks=4, safety_weeks=0.0, cost_price=100.0, price=0.0)
+    no_cost = PurchaseParams(coverage_weeks=4, safety_weeks=0.0, cost_price=0.0, price=180.0)
+
+    for params in (no_price, no_cost):
+        result = suggest_purchase(WEEKS, DEMAND, {}, opening_stock=0.0, params=params, today=TODAY)
+        assert result.qty > 0
+        assert result.roi_percent is None
+
+    # Спроса нет — заказывать нечего, и считать доходность не из чего.
+    quiet = suggest_purchase(
+        WEEKS,
+        dict.fromkeys(WEEKS, 0.0),
+        {},
+        opening_stock=0.0,
+        params=PurchaseParams(cost_price=100.0, price=180.0),
+        today=TODAY,
+    )
+    assert quiet.qty == 0
+    assert quiet.roi_percent is None
+
+
+def test_roi_does_not_change_what_is_ordered():
+    """ROI — показатель, а не правило: на количество и дату он не влияет."""
+    base = dict(lead_time_days=14, coverage_weeks=4, safety_weeks=1.0, cost_price=100.0)
+    cheap = suggest_purchase(
+        WEEKS,
+        DEMAND,
+        {},
+        opening_stock=100.0,
+        params=PurchaseParams(**base, price=110.0),
+        today=TODAY,
+    )
+    rich = suggest_purchase(
+        WEEKS,
+        DEMAND,
+        {},
+        opening_stock=100.0,
+        params=PurchaseParams(**base, price=900.0),
+        today=TODAY,
+    )
+
+    assert cheap.qty == rich.qty
+    assert cheap.order_date == rich.order_date
+    assert cheap.arrival_week == rich.arrival_week
+    assert rich.roi_percent > cheap.roi_percent

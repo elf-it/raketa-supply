@@ -473,6 +473,8 @@ class PurchaseParamsOut(BaseModel_):
     coverage_weeks: int
     safety_weeks: float
     cost_price: float
+    #: Цена продажи: участвует только в ROI, на количество не влияет.
+    price: float = 0.0
     volume_m3: float
 
 
@@ -505,6 +507,12 @@ class PurchaseRowOut(BaseModel_):
     window_demand: float = 0.0
     window_transit: float = 0.0
     stock_before: float = 0.0
+    #: Доходность вложенных в заказ денег, процентов годовых (задача C-11),
+    #: и из чего она сложилась. Пусто — считать не из чего: нет цены,
+    #: себестоимости или спроса. **[ДОПУЩЕНИЕ, Q-2]**: определение ROI наше.
+    roi_percent: float | None = None
+    sell_out_weeks: float | None = None
+    cycle_weeks: float | None = None
     params: PurchaseParamsOut
 
 

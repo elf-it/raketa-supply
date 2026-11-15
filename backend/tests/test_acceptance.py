@@ -478,9 +478,58 @@ def test_pr_10_failed_load_is_visible_from_outside(client, anon_client):
     assert anon_client.get("/api/v1/health/ready").status_code == 200
 
 
+def test_pr_11_roi_compares_positions_but_orders_nothing(client):
+    """ПР-11. ROI сравнивает позиции, но ни на что не влияет.
+
+    Дано: позиция в плане закупки. Когда: у товара меняется цена продажи.
+    Тогда: ROI меняется, а количество, дата заказа и неделя прихода — нет;
+    у позиции без заказа ROI пуст, а не нулевой. В выгрузке та же колонка.
+
+    **[ДОПУЩЕНИЕ, Q-2]** Определение ROI (годовая доходность вложенных денег
+    по валовой марже, без комиссии маркетплейса и логистики) — наше.
+    """
+    rows = client.get(f"{PURCHASE}?only_needed=false").json()["rows"]
+    row = next(r for r in rows if r["qty"] > 0 and r["roi_percent"])
+    product = next(
+        p
+        for p in client.get(f"{CATALOG}/products").json()
+        if p["vendor_code"] == row["vendor_code"]
+    )
+    assert row["sell_out_weeks"] > 0, "число должно объясняться оборотом"
+    assert all(
+        r["roi_percent"] is None for r in rows if r["qty"] == 0
+    ), "без заказа ROI пуст, а не ноль"
+
+    added = client.post(
+        f"{CATALOG}/products/{product['id']}/prices",
+        json={"valid_from": date.today().isoformat(), "price": product["price"] * 2},
+    )
+    assert added.status_code == 201, added.text
+    price_id = added.json()["history"][0]["id"]
+    try:
+        after = next(
+            r
+            for r in client.get(f"{PURCHASE}?only_needed=false").json()["rows"]
+            if r["pair_id"] == row["pair_id"]
+        )
+        assert after["roi_percent"] > row["roi_percent"], "дороже продаём — выше доходность"
+        assert after["qty"] == row["qty"], "ROI не должен менять заказ"
+        assert after["order_date"] == row["order_date"]
+        assert after["arrival_week"] == row["arrival_week"]
+    finally:
+        client.delete(f"{CATALOG}/products/{product['id']}/prices/{price_id}")
+
+    exported = client.get(f"{PURCHASE}/export?only_needed=true")
+    assert exported.status_code == 200
+    sheet = load_workbook(BytesIO(exported.content)).worksheets[0]
+    assert any(
+        "ROI" in str(cell.value or "") for line in sheet.iter_rows(max_row=12) for cell in line
+    ), "в файле закупки ROI тоже должен быть"
+
+
 @pytest.mark.parametrize(
     "case",
-    [f"pr_{number:02d}" for number in range(1, 11)],
+    [f"pr_{number:02d}" for number in range(1, 12)],
 )
 def test_every_case_from_the_document_is_runnable(case):
     """Каждый номер из `docs/05-test-cases.md` должен существовать здесь.

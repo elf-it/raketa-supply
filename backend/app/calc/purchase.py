@@ -58,6 +58,53 @@ def apply_constraints(qty: float, params: PurchaseParams) -> int:
     return int(result)
 
 
+#: Недель в году — делитель, превращающий доходность за цикл в годовую.
+WEEKS_IN_YEAR = 52.0
+
+
+def order_roi(
+    qty: int,
+    window_demand: float,
+    coverage_weeks_used: int,
+    params: PurchaseParams,
+) -> tuple[float | None, float | None, float | None]:
+    """Доходность вложенных в заказ денег: проценты годовых, недели распродажи, цикл.
+
+    **[ДОПУЩЕНИЕ, Q-2]** В ТЗ ROI назван без определения. Принято: деньги
+    вкладываются в момент заказа и возвращаются с маржой, когда заказ распродан,
+    поэтому
+
+        ROI = (цена − себестоимость) / себестоимость × 52 / цикл,
+        цикл = недели до прихода + недели распродажи,
+        недели распродажи = количество / средний недельный спрос окна.
+
+    Почему годовые, а не «маржа на рубль»: закупка — это выбор, во что вложить
+    ограниченные деньги. Позиция с маржой 30 %, распродающаяся за месяц, лучше
+    позиции с маржой 80 %, которая лежит полгода, и увидеть это можно только
+    приведя обе к одному сроку.
+
+    Чего в числе нет: комиссии маркетплейса, логистики, хранения и возвратов —
+    этих данных в системе нет вовсе. Значит, ROI **завышен** и годится для
+    сравнения позиций между собой, а не как обещание доходности. Когда заказчик
+    ответит на Q-2, меняется одна эта функция.
+
+    ``None`` возвращается там, где считать не из чего: нет цены, себестоимости,
+    спроса или количества. Ноль означал бы «не окупается», а это не то же самое.
+    """
+    weeks_of_demand = max(1, coverage_weeks_used)
+    weekly_demand = window_demand / weeks_of_demand
+    if qty <= 0 or params.cost_price <= 0 or params.price <= 0 or weekly_demand <= 0:
+        return None, None, None
+
+    sell_out_weeks = qty / weekly_demand
+    cycle_weeks = params.lead_time_days / 7 + sell_out_weeks
+    if cycle_weeks <= 0:
+        return None, None, None
+
+    margin = (params.price - params.cost_price) / params.cost_price
+    return margin * WEEKS_IN_YEAR / cycle_weeks * 100, sell_out_weeks, cycle_weeks
+
+
 def suggest_purchase(
     weeks: list[str],
     demand: dict[str, float],
@@ -121,6 +168,7 @@ def suggest_purchase(
     need = window_demand + safety - stock_before - window_transit
 
     qty = apply_constraints(need, params)
+    roi_percent, sell_out_weeks, cycle_weeks = order_roi(qty, window_demand, len(window), params)
 
     return PurchaseSuggestion(
         needed=qty > 0,
@@ -139,6 +187,9 @@ def suggest_purchase(
         window_demand=window_demand,
         window_transit=window_transit,
         stock_before=stock_before,
+        roi_percent=roi_percent,
+        sell_out_weeks=sell_out_weeks,
+        cycle_weeks=cycle_weeks,
         reason=(
             f"остаток опускается ниже страхового запаса на неделе {shortage_week}"
             if qty > 0

@@ -57,6 +57,9 @@ def resolve_params(
             else settings.default_safety_weeks
         ),
         cost_price=product.cost_price,
+        # Цена продажи участвует только в ROI (задача C-11): количество считается
+        # по спросу, а не по марже.
+        price=product.price,
         volume_m3=product.volume_m3,
     )
 

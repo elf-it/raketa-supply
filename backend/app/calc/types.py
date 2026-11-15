@@ -75,6 +75,9 @@ class PurchaseParams:
     coverage_weeks: int = 4
     safety_weeks: float = 2.0
     cost_price: float = 0.0
+    #: Цена продажи — нужна только для ROI (задача C-11). В расчёт количества
+    #: она не входит: сколько покупать, решает спрос, а не маржа.
+    price: float = 0.0
     volume_m3: float = 0.0
 
 
@@ -176,3 +179,11 @@ class PurchaseSuggestion:
     window_demand: float = 0.0
     window_transit: float = 0.0
     stock_before: float = 0.0
+    #: Доходность вложенных в этот заказ денег, процентов годовых, и из чего она
+    #: сложилась: за сколько недель заказ распродаётся и сколько недель деньги
+    #: заняты целиком (задача C-11). ``None`` — считать не из чего: нет цены,
+    #: себестоимости или спроса. Это показатель, а не правило: на количество,
+    #: дату заказа и на то, попадёт ли позиция в план, он не влияет.
+    roi_percent: float | None = None
+    sell_out_weeks: float | None = None
+    cycle_weeks: float | None = None
