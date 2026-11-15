@@ -12,7 +12,7 @@ from ..config import get_settings
 from ..db import get_session
 from ..models import ROLE_ORDER, Role, User
 from ..observability import event, mask_email
-from ..ratelimit import get_login_guard
+from ..ratelimit import client_address, get_login_guard
 from ..schemas import LoginIn, PasswordChangeIn, UserCreateIn, UserOut, UserUpdateIn
 from ..security import (
     SESSION_COOKIE,
@@ -86,7 +86,7 @@ def login(
     пароля — перебор не должен даже доходить до bcrypt.
     """
     email = payload.email.strip().lower()
-    address = request.client.host if request.client else "-"
+    address = client_address(request)
     guard = get_login_guard()
     wait = guard.retry_after(email, address)
     if wait:

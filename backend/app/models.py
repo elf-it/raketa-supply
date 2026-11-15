@@ -416,6 +416,28 @@ class SyncRun(Base):
     message: Mapped[str | None] = mapped_column(Text, default=None)
 
 
+class LoginAttempt(Base):
+    """Неудачная попытка входа (задача G-12).
+
+    Счётчик перебора живёт в базе, а не в памяти процесса: воркеров несколько,
+    и у каждого была бы своя доля лимита, а перезапуск обнулял бы её целиком.
+    База у всех воркеров одна, попытки входа редки, и один запрос на попытку
+    дешевле, чем отдельное хранилище ради одного счётчика.
+
+    Пароль здесь, разумеется, не хранится — только с какой почты и с какого
+    адреса стучались. Записи старше окна подсчёта удаляются: это счётчик,
+    а не журнал, и хранить историю чужих опечаток незачем.
+    """
+
+    __tablename__ = "login_attempts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Почта в нижнем регистре — она же ключ сравнения.
+    email: Mapped[str] = mapped_column(String(190), index=True)
+    address: Mapped[str] = mapped_column(String(64), index=True)
+    happened_at: Mapped[datetime] = mapped_column(DateTime, index=True, default=func.now())
+
+
 class User(Base):
     """Пользователь системы. Пароль хранится только как bcrypt-хеш."""
 
