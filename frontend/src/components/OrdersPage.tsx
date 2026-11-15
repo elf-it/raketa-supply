@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api } from '../api';
-import type { Order, OrderStatus } from '../types';
+import type { Order, OrderLine, OrderStatus } from '../types';
 
 const numberFormat = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 const moneyFormat = new Intl.NumberFormat('ru-RU', {
@@ -20,6 +20,18 @@ function formatMoment(value: string | null): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * Разошлась ли цена в строке с нынешней (задача B-9).
+ *
+ * Снимок в документе не переписывается: сумма отправленного заказа не должна
+ * меняться задним числом. Но собранный месяц назад черновик посчитан по старой
+ * цене, и это должно быть видно, а не выясняться из счёта поставщика.
+ * Сравнение в копейках: обе величины — числа с плавающей точкой.
+ */
+function priceMoved(line: OrderLine): boolean {
+  return Math.abs(line.cost_price_now - line.cost_price) >= 0.005;
 }
 
 const FILTERS: { id: OrderStatus | 'all'; label: string }[] = [
@@ -352,7 +364,21 @@ export function OrdersPage({ canEdit, onError, onChanged }: Props) {
                                   numberFormat.format(line.qty)
                                 )}
                               </td>
-                              <td className="num">{moneyFormat.format(line.cost)}</td>
+                              <td className="num">
+                                {moneyFormat.format(line.cost)}
+                                {priceMoved(line) && (
+                                  <div
+                                    className="row-subtitle danger-text"
+                                    title={
+                                      'Сумма документа считается по цене, записанной при сборке. ' +
+                                      'Чтобы заказать по нынешней, черновик собирают заново.'
+                                    }
+                                  >
+                                    цена изменилась: {moneyFormat.format(line.cost_price)} →{' '}
+                                    {moneyFormat.format(line.cost_price_now)} за шт.
+                                  </div>
+                                )}
+                              </td>
                               {editable(order) && (
                                 <td>
                                   <button
@@ -398,7 +424,8 @@ export function OrdersPage({ canEdit, onError, onChanged }: Props) {
                         {editable(order)
                           ? 'Количество, неделю прихода и примечание правят до размещения: ' +
                             'размещённый заказ уже ушёл поставщику и считается товаром в пути. ' +
-                            'Себестоимость записана при создании заказа, правка её не меняет. ' +
+                            'Себестоимость записана при создании строки, правка её не меняет; ' +
+                            'если цена с тех пор изменилась, это сказано в строке. ' +
                             'Забытую позицию дописывают на экране закупки — кнопкой в её строке.'
                           : 'Себестоимость записана на момент создания заказа: сумма не меняется ' +
                             'задним числом вслед за карточкой товара. Правится только черновик — ' +

@@ -103,6 +103,47 @@ export interface Category {
   abc_class: string | null;
 }
 
+export interface Product {
+  id: number;
+  vendor_code: string;
+  title: string;
+  category: string | null;
+  supplier: string | null;
+  /** Действует сейчас; череда изменений — в истории цен (`PriceCard`). */
+  cost_price: number;
+  price: number;
+  volume_m3: number;
+  lead_time_days: number | null;
+  moq: number | null;
+  pack_size: number | null;
+  /** С какой даты действуют нынешние цены; пусто — истории цен нет. */
+  price_valid_from: string | null;
+}
+
+/** Запись истории цен: значения, действующие с даты. */
+export interface PriceRecord {
+  id: number;
+  valid_from: string;
+  cost_price: number;
+  price: number;
+  author: string | null;
+  note: string | null;
+  /** Когда запись завели — это не та же дата, что `valid_from`. */
+  created_at: string;
+}
+
+export interface PriceCard {
+  product_id: number;
+  vendor_code: string;
+  title: string;
+  supplier: string | null;
+  cost_price: number;
+  price: number;
+  valid_from: string | null;
+  /** От новой записи к старой. */
+  history: PriceRecord[];
+}
+
 export interface PurchaseRow {
   pair_id: number;
   store_name: string;
@@ -199,6 +240,10 @@ export interface OrderLine {
   arrival_week: string;
   cost: number;
   volume_m3: number;
+  /** Себестоимость, записанная в строку при её создании. */
+  cost_price: number;
+  /** Действующая сейчас: расходится с записанной — цена изменилась после сборки. */
+  cost_price_now: number;
 }
 
 export interface Order {

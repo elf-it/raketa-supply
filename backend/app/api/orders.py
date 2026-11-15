@@ -35,6 +35,8 @@ def _to_out(order: PurchaseOrder, with_lines: bool = True) -> OrderOut:
             arrival_week=line.arrival_week,
             cost=line.qty * line.cost_price,
             volume_m3=line.qty * line.volume_m3,
+            cost_price=line.cost_price,
+            cost_price_now=line.pair.product.cost_price,
         )
         for line in order.lines
     ]

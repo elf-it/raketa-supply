@@ -8,10 +8,11 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
     Float,
@@ -152,6 +153,50 @@ class Product(Base):
     category: Mapped[Category | None] = relationship(back_populates="products")
     supplier: Mapped[Supplier | None] = relationship(back_populates="products")
     pairs: Mapped[list[StoreProduct]] = relationship(back_populates="product")
+    #: История цен (задача B-9). Поля выше — то, что действует сейчас.
+    prices: Mapped[list[ProductPrice]] = relationship(
+        back_populates="product", cascade="all, delete-orphan"
+    )
+
+
+class ProductPrice(Base):
+    """Себестоимость и цена товара, действующие с определённой даты (задача B-9).
+
+    В карточке товара лежат значения, действующие сейчас, — их читают расчёт
+    закупки и выгрузки. Здесь лежит вся череда изменений, и только по ней можно
+    ответить, почему сентябрьский заказ вышел дешевле ноябрьского: без истории
+    прежняя себестоимость исчезала в момент правки карточки.
+
+    Дата, а не отметка времени: поставщик меняет цену с числа, а не с минуты.
+    На одну дату у товара одна запись — вторая была бы не новой ценой,
+    а исправлением первой, поэтому запись на занятую дату переписывается.
+
+    **[ДОПУЩЕНИЕ, Q-14]** Дата будущего не принимается: применить её в срок
+    было бы нечему (планировщика в системе нет), а считать «действующую цену»
+    на момент открытия экрана значило бы, что заказ, собранный сегодня на приход
+    в декабре, у двух людей посчитается по-разному. Прайс «с первого декабря»
+    вводят первого декабря.
+    """
+
+    __tablename__ = "product_prices"
+    __table_args__ = (UniqueConstraint("product_id", "valid_from", name="uq_product_price_date"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), index=True
+    )
+    #: Дата, с которой действуют эти значения.
+    valid_from: Mapped[date] = mapped_column(Date, index=True)
+    cost_price: Mapped[float] = mapped_column(Float, default=0.0)
+    price: Mapped[float] = mapped_column(Float, default=0.0)
+    author: Mapped[str | None] = mapped_column(String(64), default=None)
+    #: Чем вызвана перемена: счёт поставщика, новый прайс, курс.
+    note: Mapped[str | None] = mapped_column(Text, default=None)
+    #: Когда запись завели в систему — это не та же дата, что `valid_from`:
+    #: о подорожании узнают позже, чем оно случилось.
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    product: Mapped[Product] = relationship(back_populates="prices")
 
 
 class StoreProduct(Base):
@@ -272,9 +317,10 @@ class PurchaseOrder(Base):
 class PurchaseOrderLine(Base):
     """Строка заказа: сколько и чего заказали по паре (магазин, товар).
 
-    Себестоимость записывается на момент создания заказа: истории цен в системе
-    нет (задача B-9), а сумма заказа не должна меняться задним числом вслед
-    за карточкой товара.
+    Себестоимость записывается на момент, когда строка попала в документ: сумма
+    заказа не должна меняться задним числом вслед за карточкой товара. История
+    цен (:class:`ProductPrice`) эту запись не переписывает — она показывает,
+    что цена с тех пор изменилась, и тогда черновик собирают заново.
     """
 
     __tablename__ = "purchase_order_lines"

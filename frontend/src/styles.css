@@ -1654,3 +1654,63 @@ input.name-edit:focus {
 .filters[hidden] {
   display: none;
 }
+
+/* --- Цены и себестоимость (B-9) --------------------------------------------- */
+
+/* Ячейка раскрытой строки растягивает таблицу по своему содержимому, а в таблице
+   текст не переносится: без этих двух строк пояснение шло бы одной строкой на
+   полтора экрана, уводя за край и кнопку «Записать», и сами строки товаров. */
+.price-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 900px;
+  white-space: normal;
+}
+
+/* Действующая запись — первая в списке; её выделяем, чтобы в длинной истории
+   не искать глазами, какая цена работает сейчас. */
+table.purchase.inner tr.current-price td {
+  background: var(--accent-soft);
+}
+
+.price-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.price-form .inline-field {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.price-form .inline-field.grow {
+  flex: 1 1 150px;
+}
+
+.price-form input {
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  width: 100%;
+  min-width: 110px;
+}
+
+button.link.danger {
+  color: var(--danger);
+}
+
+.row-subtitle.danger-text {
+  color: var(--danger);
+}

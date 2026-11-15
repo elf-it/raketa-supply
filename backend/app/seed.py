@@ -30,6 +30,7 @@ from .models import (
     ForecastAdjustment,
     Marketplace,
     Product,
+    ProductPrice,
     Role,
     Seasonality,
     Store,
@@ -135,6 +136,7 @@ def reset(session: Session) -> None:
         SyncRun,
         Seasonality,
         StoreProduct,
+        ProductPrice,
         Product,
         Category,
         Supplier,
@@ -399,6 +401,45 @@ def seed_adjustments(session: Session, today: date) -> None:
     )
 
 
+def seed_prices(session: Session, today: date) -> None:
+    """История цен: начальная запись у всех товаров, у каждого третьего — подорожание.
+
+    Нынешние значения карточки при этом не меняются: подорожание приводит
+    к ровно той цене, с которой товар уже заведён, — иначе демо-данные
+    разошлись бы со всем, что по ним посчитано.
+    """
+    from .services.prices import set_price
+
+    products = list(session.scalars(select(Product).order_by(Product.vendor_code)).all())
+    start = week_start(shift_week(week_key(today), -(HISTORY_WEEKS - 1)))
+    risen = {product.id for index, product in enumerate(products) if index % 3 == 0}
+
+    for product in products:
+        # У подорожавших начальная себестоимость ниже нынешней, у остальных равна ей.
+        was = round(product.cost_price / 1.1, 2) if product.id in risen else product.cost_price
+        session.add(
+            ProductPrice(
+                product_id=product.id,
+                valid_from=start,
+                cost_price=was,
+                price=product.price,
+                author="начальная загрузка",
+            )
+        )
+    session.commit()
+
+    for product in (p for p in products if p.id in risen):
+        set_price(
+            session,
+            product,
+            valid_from=start + timedelta(weeks=6),
+            cost_price=product.cost_price,
+            author="Анна, снабжение",
+            note="новый прайс поставщика",
+            today=today,
+        )
+
+
 def freeze_plans(session: Session, today: date) -> None:
     """План закрытых недель, чтобы KPI «выполнение плана» считался на истории."""
     from .services.matrix import (
@@ -463,6 +504,7 @@ def main(
             today=today,
         )
         seed_supplies(session, today)
+        seed_prices(session, today)
         freeze_plans(session, today)
         seed_adjustments(session, today)
 

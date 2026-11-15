@@ -13,6 +13,8 @@ import type {
   Order,
   OrderDraft,
   OrderStatus,
+  PriceCard,
+  Product,
   PurchasePlan,
   Role,
   SeasonalityRow,
@@ -120,6 +122,28 @@ export const api = {
 
   stores: () => request<Store[]>('/catalog/stores'),
   categories: () => request<Category[]>('/catalog/categories'),
+
+  products: (search?: string) =>
+    request<Product[]>(
+      `/catalog/products${search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : ''}`,
+    ),
+
+  // История цен (задача B-9). Любое изменение истории возвращает карточку
+  // целиком: правка задним числом может не сдвинуть действующую цену, и экран
+  // не должен догадываться об этом сам.
+  prices: (productId: number) => request<PriceCard>(`/catalog/products/${productId}/prices`),
+
+  addPrice: (
+    productId: number,
+    payload: { valid_from: string; cost_price?: number; price?: number; note?: string },
+  ) =>
+    request<PriceCard>(`/catalog/products/${productId}/prices`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  deletePrice: (productId: number, priceId: number) =>
+    request<PriceCard>(`/catalog/products/${productId}/prices/${priceId}`, { method: 'DELETE' }),
 
   /**
    * Матрица с окном строк. Итоги, KPI и счётчики в ответе — по всей выборке,

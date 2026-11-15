@@ -9,6 +9,7 @@ import { JournalPage } from './components/JournalPage';
 import { KpiBar } from './components/KpiBar';
 import { LoginPage } from './components/LoginPage';
 import { OrdersPage } from './components/OrdersPage';
+import { PricesPage } from './components/PricesPage';
 import { PurchasePanel } from './components/PurchasePanel';
 import { MAX_CHART_ROWS, RowChart } from './components/RowChart';
 import { SeasonalityPage } from './components/SeasonalityPage';
@@ -48,7 +49,15 @@ const LEVELS: { id: Level; label: string }[] = [
   { id: 'sku', label: 'Артикулы' },
 ];
 
-type Tab = 'matrix' | 'purchase' | 'orders' | 'potential' | 'seasonality' | 'journal' | 'users';
+type Tab =
+  | 'matrix'
+  | 'purchase'
+  | 'orders'
+  | 'potential'
+  | 'seasonality'
+  | 'prices'
+  | 'journal'
+  | 'users';
 
 const TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
   { id: 'matrix', label: 'Матрица' },
@@ -56,6 +65,7 @@ const TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
   { id: 'orders', label: 'Заказы' },
   { id: 'potential', label: 'Потенциал' },
   { id: 'seasonality', label: 'Сезонность' },
+  { id: 'prices', label: 'Цены' },
   { id: 'journal', label: 'Журнал' },
   { id: 'users', label: 'Пользователи', adminOnly: true },
 ];
@@ -732,6 +742,8 @@ export default function App() {
       )}
 
       {tab === 'seasonality' && <SeasonalityPage onError={setError} canEdit={canEdit} />}
+
+      {tab === 'prices' && <PricesPage onError={setError} canEdit={canEdit} />}
 
       {tab === 'journal' && <JournalPage filters={pageFilters} onError={setError} />}
 

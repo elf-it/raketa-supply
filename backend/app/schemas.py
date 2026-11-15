@@ -95,6 +95,47 @@ class ProductOut(BaseModel_):
     lead_time_days: int | None = None
     moq: int | None = None
     pack_size: int | None = None
+    #: С какой даты действуют нынешние цены (задача B-9). Пусто — истории цен
+    #: нет: товар достался системе с ценой, но без даты её появления.
+    price_valid_from: date | None = None
+
+
+class PriceIn(BaseModel_):
+    """Новая цена товара с даты.
+
+    Передать можно одно значение из двух — второе останется прежним. Автора
+    клиент не передаёт: он берётся из сессии.
+    """
+
+    valid_from: date
+    cost_price: float | None = Field(default=None, ge=0)
+    price: float | None = Field(default=None, ge=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class PriceOut(BaseModel_):
+    id: int
+    valid_from: date
+    cost_price: float
+    price: float
+    author: str | None = None
+    note: str | None = None
+    #: Когда запись завели: о подорожании узнают позже, чем оно случилось.
+    created_at: UtcDatetime
+
+
+class PriceCardOut(BaseModel_):
+    """Товар с его историей цен: ответ на любое изменение истории."""
+
+    product_id: int
+    vendor_code: str
+    title: str
+    supplier: str | None = None
+    #: Действует сейчас — то же, что в карточке товара.
+    cost_price: float
+    price: float
+    valid_from: date | None = None
+    history: list[PriceOut] = []
 
 
 class WeekOut(BaseModel_):
@@ -320,6 +361,12 @@ class OrderLineOut(BaseModel_):
     arrival_week: str
     cost: float
     volume_m3: float
+    #: Себестоимость, записанная в строку при её создании.
+    cost_price: float = 0.0
+    #: Себестоимость, действующая сейчас (задача B-9). Отличается от записанной —
+    #: значит, цена изменилась после того, как строку собрали, и сумма черновика
+    #: устарела. Документ от этого не меняется: его сумму правит человек.
+    cost_price_now: float = 0.0
 
 
 class OrderOut(BaseModel_):
