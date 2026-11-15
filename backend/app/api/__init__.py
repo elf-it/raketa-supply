@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from . import auth, catalog, forecast, matrix, orders, purchase, reference, sync
+from . import auth, catalog, forecast, health, matrix, orders, purchase, reference, sync
 from .deps import require_viewer
 
 api_router = APIRouter(prefix="/api/v1")
@@ -8,6 +8,9 @@ api_router = APIRouter(prefix="/api/v1")
 # Вход открыт, остальное — только вошедшим. Права на изменение данных
 # проверяются уже в самих маршрутах.
 api_router.include_router(auth.router)
+# Живость и готовность тоже открыты: мониторинг, который их опрашивает, сессии
+# не заводит. Названий и чисел в их ответах поэтому нет.
+api_router.include_router(health.router)
 
 protected = APIRouter(dependencies=[Depends(require_viewer)])
 protected.include_router(matrix.router)

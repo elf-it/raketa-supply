@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..config import get_settings
 from ..db import get_session
 from ..models import Category, Product, Store, StoreProduct, Supplier, User, WeekFact
+from ..observability import event
 from ..schemas import (
     CatalogImportOut,
     CategoryIn,
@@ -726,6 +727,18 @@ def import_catalog(
         )
     except catalog_import.CatalogImportError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+    if apply:
+        # Разбор не логируем: он ничего не меняет, а строка в логе должна
+        # означать «в каталоге что-то произошло».
+        event(
+            "загрузка номенклатуры",
+            rows=plan.rows_read,
+            products=plan.new_products.count,
+            pairs=plan.new_pairs.count,
+            prices=plan.price_records.count,
+            skipped=plan.issues.count,
+        )
     return CatalogImportOut.model_validate(plan)
 
 

@@ -8,16 +8,28 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...calc import week_key
 from ...models import Store, StoreProduct, SyncRun, SyncStatus, WeekFact
+from ...observability import event
 from .client import WbClient
+
+
+def _now() -> datetime:
+    """Время окончания прогона — в UTC без зоны, как хранит база.
+
+    ``datetime.now()`` вернул бы местное время, и на машине с часовым поясом
+    конец прогона оказывался бы «раньше» его начала, которое ставит сама база
+    (``func.now()``). На таких отметках считается отставание загрузки.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 @dataclass
@@ -115,8 +127,14 @@ def sync_store(
         run.facts_upserted = report.facts_upserted
         if unknown:
             run.message = f"не сопоставлено номенклатур: {len(unknown)}"
-        run.finished_at = datetime.now()
+        run.finished_at = _now()
         session.commit()
+        event(
+            "кабинет загружен",
+            store=store.code,
+            facts=report.facts_upserted,
+            unknown=len(unknown),
+        )
     except Exception as exc:  # noqa: BLE001 — любая ошибка должна попасть в журнал
         session.rollback()
         report.error = f"{type(exc).__name__}: {exc}"
@@ -124,8 +142,11 @@ def sync_store(
         if run is not None:
             run.status = SyncStatus.FAILED
             run.message = report.error
-            run.finished_at = datetime.now()
+            run.finished_at = _now()
             session.commit()
+        # В журнал синхронизаций ошибка уже записана, но туда смотрят, когда
+        # что-то заподозрили. В лог она попадает сразу и с трассировкой.
+        event("кабинет не загрузился", level=logging.ERROR, store=store.code, exception=True)
     return report
 
 

@@ -10,19 +10,33 @@ from .api import api_router
 from .config import get_settings
 from .db import engine
 from .migrations import assert_current
+from .observability import RequestLogMiddleware, configure_logging, event
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Приложение не создаёт и не правит схему: это делает явный шаг развёртывания.
     # Работать на устаревшей базе хуже, чем не запуститься.
-    get_settings().validate_runtime()
+    settings = get_settings()
+    settings.validate_runtime()
     assert_current(engine)
+    # Первая строка в логе отвечает на вопросы, которые иначе задают человеку:
+    # какая версия поднялась, в каком режиме и на какой базе. Пароль из URL
+    # базы убран: логи читают шире, чем настройки.
+    event(
+        "приложение запущено",
+        version=__version__,
+        debug=settings.debug,
+        database=engine.url.render_as_string(hide_password=True),
+        wb_client=settings.wb_client,
+    )
     yield
+    event("приложение остановлено", version=__version__)
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
     app = FastAPI(
         title=settings.app_name,
         version=__version__,
@@ -40,13 +54,11 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Номер запроса виден браузеру: по нему человек находит свой запрос в логе.
+        expose_headers=["X-Request-Id"],
     )
+    app.add_middleware(RequestLogMiddleware)
     app.include_router(api_router)
-
-    @app.get("/api/v1/health", tags=["Служебное"], summary="Проверка живости")
-    def health() -> dict:
-        return {"status": "ok", "version": __version__}
-
     return app
 
 

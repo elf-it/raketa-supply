@@ -285,6 +285,26 @@ class PairOut(BaseModel_):
     fact_count: int = 0
 
 
+class StoreSyncOut(BaseModel_):
+    """Состояние загрузки одного кабинета (задача G-4)."""
+
+    store_id: int
+    store_code: str
+    store_name: str
+    #: ok · failed · stale · never
+    status: str
+    finished_at: UtcDatetime | None = None
+    facts_upserted: int = 0
+    message: str | None = None
+
+
+class SyncHealthOut(BaseModel_):
+    #: ok · degraded
+    status: str
+    stale_after_hours: int
+    stores: list[StoreSyncOut] = []
+
+
 class CatalogTallyOut(BaseModel_):
     """Счётчик с примерами: по одному числу не понять, что именно произойдёт."""
 

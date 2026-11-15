@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -9,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..db import get_session
 from ..models import ROLE_ORDER, Role, User
+from ..observability import event, mask_email
 from ..ratelimit import get_login_guard
 from ..schemas import LoginIn, PasswordChangeIn, UserCreateIn, UserOut, UserUpdateIn
 from ..security import (
@@ -37,6 +40,22 @@ def _set_session_cookie(response: Response, token: str) -> None:
         secure=settings.cookie_secure,
         max_age=settings.session_ttl_hours * 3600,
         path="/",
+    )
+
+
+def _log_failure(email: str, address: str, reason: str) -> None:
+    """Неудачный вход в лог: по нему виден перебор.
+
+    Почта маскируется до первой буквы (``app/observability.py``): для разбора
+    перебора этого достаточно, а лог читают шире, чем базу. Пароль, даже
+    неверный, не пишется никогда — в нём бывает чужой верный.
+    """
+    event(
+        "неудачный вход",
+        level=logging.WARNING,
+        email=mask_email(email),
+        address=address,
+        reason=reason,
     )
 
 
@@ -78,12 +97,15 @@ def login(
         # Пароль всё равно проверяем, чтобы ответ не был заметно быстрее.
         verify_password(payload.password, "$2b$12$" + "." * 53)
         guard.failure(email, address)
+        _log_failure(email, address, "нет такой записи или она отключена")
         raise BAD_CREDENTIALS
     if not verify_password(payload.password, user.password_hash):
         guard.failure(email, address)
+        _log_failure(email, address, "пароль не подошёл")
         raise BAD_CREDENTIALS
 
     guard.success(email, address)
+    event("вход", user=user.id, role=user.role.value)
     _set_session_cookie(response, create_token(user.id, user.role.value))
     return UserOut.model_validate(user)
 

@@ -14,6 +14,7 @@ import { PricesPage } from './components/PricesPage';
 import { PurchasePanel } from './components/PurchasePanel';
 import { MAX_CHART_ROWS, RowChart } from './components/RowChart';
 import { SeasonalityPage } from './components/SeasonalityPage';
+import { SyncBanner } from './components/SyncBanner';
 import { UsersPage } from './components/UsersPage';
 import { GROUP_METRICS, WeekMatrix } from './components/WeekMatrix';
 import type {
@@ -29,6 +30,7 @@ import type {
   Row,
   Status,
   Store,
+  SyncHealth,
 } from './types';
 
 /** Отбор строк по статусу. Слова те же, что на значке строки, чтобы не плодить словарь. */
@@ -103,6 +105,8 @@ export default function App() {
 
   const [stores, setStores] = useState<Store[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  /** Свежесть данных кабинетов: о сбое загрузки человек должен узнать сам. */
+  const [syncHealth, setSyncHealth] = useState<SyncHealth | null>(null);
   const [matrix, setMatrix] = useState<Matrix | null>(null);
   const [purchase, setPurchase] = useState<PurchasePlan | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -178,10 +182,25 @@ export default function App() {
     }
   }, []);
 
+  /**
+   * Свежесть данных. Читается при входе и после каждой загрузки WB: плашка
+   * должна исчезнуть сразу, как только загрузка прошла, и появиться сразу,
+   * как только она упала. Отказ этого запроса молчит — это справка о данных,
+   * а не сами данные, и ронять из-за неё экран незачем.
+   */
+  const loadSyncHealth = useCallback(async () => {
+    try {
+      setSyncHealth(await api.syncStatus());
+    } catch {
+      setSyncHealth(null);
+    }
+  }, []);
+
   useEffect(() => {
     if (!user) return;
     void loadLookups();
-  }, [user, loadLookups]);
+    void loadSyncHealth();
+  }, [user, loadLookups, loadSyncHealth]);
 
   const reload = useCallback(async () => {
     // Экраны потенциала и сезонности грузят себя сами.
@@ -542,6 +561,7 @@ export default function App() {
                 try {
                   await api.syncWb();
                   await reload();
+                  await loadSyncHealth();
                 } catch (err) {
                   setError((err as Error).message);
                 } finally {
@@ -628,6 +648,8 @@ export default function App() {
       </div>
 
       {error && <div className="error">Ошибка запроса: {error}</div>}
+
+      <SyncBanner health={syncHealth} />
 
       {tab === 'matrix' && matrix && (
         <>

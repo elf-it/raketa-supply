@@ -136,6 +136,25 @@ export interface Product {
   store_count: number;
 }
 
+/** Состояние загрузки одного кабинета (задача G-4). */
+export interface StoreSync {
+  store_id: number;
+  store_code: string;
+  store_name: string;
+  /** ok · failed · stale · never */
+  status: string;
+  finished_at: string | null;
+  facts_upserted: number;
+  message: string | null;
+}
+
+export interface SyncHealth {
+  /** ok · degraded */
+  status: string;
+  stale_after_hours: number;
+  stores: StoreSync[];
+}
+
 /** Счётчик с примерами: по одному числу не понять, что именно произойдёт. */
 export interface CatalogTally {
   count: number;

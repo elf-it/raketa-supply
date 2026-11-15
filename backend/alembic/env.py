@@ -20,7 +20,12 @@ from app.models import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # ``disable_existing_loggers`` обязательно False. По умолчанию ``fileConfig``
+    # выключает все логгеры, созданные до него, — а миграции запускаются и внутри
+    # процесса приложения (сид, проверки, тесты). С умолчанием первый же вызов
+    # гасил логи приложения до конца процесса, и это молчание выглядело бы как
+    # «логирование не работает», а не как «его выключили миграции».
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 if not config.get_main_option("sqlalchemy.url", None):
     config.set_main_option("sqlalchemy.url", get_settings().database_url)

@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from datetime import UTC
 
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import ROLE_ORDER, Role, User
+from ..observability import set_actor
 from ..security import SESSION_COOKIE, decode_token
 
 UNAUTHORIZED = HTTPException(
@@ -22,6 +23,7 @@ UNAUTHORIZED = HTTPException(
 
 
 def current_user(
+    request: Request,
     session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE),
     session: Session = Depends(get_session),
 ) -> User:
@@ -42,6 +44,9 @@ def current_user(
         raise UNAUTHORIZED
     if _issued_before_password_change(payload, user):
         raise UNAUTHORIZED
+    # Кто делает запрос — в строку лога (задача G-4). Здесь и только здесь:
+    # раньше проверки доступа это неизвестно, а почта в лог не уходит.
+    set_actor(user.id, user.role.value, request)
     return user
 
 

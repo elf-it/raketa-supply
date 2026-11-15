@@ -22,6 +22,7 @@ import type {
   SeasonalityRow,
   Store,
   Supplier,
+  SyncHealth,
   User,
 } from './types';
 
@@ -402,4 +403,8 @@ export const api = {
     }),
 
   syncWb: () => request<unknown>('/sync/wb', { method: 'POST' }),
+
+  // Свежесть данных по кабинетам (задача G-4). Сбой загрузки — самая дорогая
+  // из незаметных поломок: экран продолжает показывать числа, они просто не те.
+  syncStatus: () => request<SyncHealth>('/sync/status'),
 };
