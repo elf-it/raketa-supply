@@ -108,11 +108,15 @@ logger.addFilter(ContextFilter())
 
 
 class TextFormatter(logging.Formatter):
+    # Время в UTC, как и все отметки в базе: иначе строку лога и запись журнала
+    # синхронизаций пришлось бы в уме сдвигать на часовой пояс машины. Буква Z
+    # стоит затем, чтобы это было видно, а не предполагалось.
+    converter = time.gmtime
     default_time_format = "%Y-%m-%d %H:%M:%S"
 
     def format(self, record: logging.LogRecord) -> str:
         head = (
-            f"{self.formatTime(record)} {record.levelname:<7} {record.name} "
+            f"{self.formatTime(record)}Z {record.levelname:<7} {record.name} "
             f"req={getattr(record, 'request_id', '-')} "
             f"user={getattr(record, 'actor', '-')} {record.getMessage()}"
         )
@@ -127,9 +131,11 @@ class TextFormatter(logging.Formatter):
 class JsonFormatter(logging.Formatter):
     """Строка-объект на событие: для сборщика логов, а не для глаз."""
 
+    converter = time.gmtime
+
     def format(self, record: logging.LogRecord) -> str:
         payload = {
-            "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
+            "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S") + "Z",
             "level": record.levelname,
             "logger": record.name,
             "request_id": getattr(record, "request_id", "-"),
