@@ -188,7 +188,8 @@ def test_backdated_record_leaves_the_card_and_the_calculation_alone(client):
     added = _row_on(card, oldest - timedelta(days=30))
     assert added is not None
     try:
-        assert card["cost_price"] == approx(before["cost_price"]), "действует по-прежнему новая цена"
+        was = before["cost_price"]
+        assert card["cost_price"] == approx(was), "действует по-прежнему новая цена"
         assert card["valid_from"] == before["valid_from"]
         assert len(card["history"]) == len(before["history"]) + 1
         assert card["history"][-1]["cost_price"] == approx(1.5)
@@ -300,9 +301,7 @@ def test_unknown_product_and_record_answer_404(client):
     # Запись чужого товара не считается найденной: иначе удалить можно было бы
     # что угодно, подставив в адрес любой товар.
     foreign = _card(client, other["id"])["history"][0]
-    assert (
-        client.delete(f"{CATALOG}/{product['id']}/prices/{foreign['id']}").status_code == 404
-    )
+    assert client.delete(f"{CATALOG}/{product['id']}/prices/{foreign['id']}").status_code == 404
     assert _card(client, other["id"])["history"][0] == foreign, "чужая запись на месте"
 
 
