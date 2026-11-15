@@ -136,6 +136,28 @@ export interface Product {
   store_count: number;
 }
 
+/** Счётчик с примерами: по одному числу не понять, что именно произойдёт. */
+export interface CatalogTally {
+  count: number;
+  examples: string[];
+}
+
+/** Что файл номенклатуры изменит или изменил (задача B-15). */
+export interface CatalogImport {
+  applied: boolean;
+  rows_read: number;
+  total_changes: number;
+  new_categories: CatalogTally;
+  new_suppliers: CatalogTally;
+  new_products: CatalogTally;
+  updated_products: CatalogTally;
+  new_pairs: CatalogTally;
+  updated_pairs: CatalogTally;
+  price_records: CatalogTally;
+  /** Строки, которые в работу не взяли, — с номером строки файла и причиной. */
+  issues: CatalogTally;
+}
+
 /** Товар в кабинете — минимальная расчётная единица (задача B-14). */
 export interface Pair {
   id: number;

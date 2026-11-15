@@ -2,6 +2,7 @@ import type {
   BasePotentialRow,
   BulkRequest,
   BulkResult,
+  CatalogImport,
   Category,
   CurrentUser,
   JournalBatchPage,
@@ -251,6 +252,22 @@ export const api = {
   ) => request<Pair>(`/catalog/pairs/${pairId}`, { method: 'PUT', body: JSON.stringify(payload) }),
 
   deletePair: (pairId: number) => request<void>(`/catalog/pairs/${pairId}`, { method: 'DELETE' }),
+
+  // Загрузка номенклатуры файлом (задача B-15). Та же дорога, что у правок
+  // прогноза: сначала разбор без записи, потом применение того же файла.
+  // Выгрузка каталога — она же шаблон: на пустой базе в книге только шапка.
+  catalogExportUrl: () => `${BASE}/catalog/export`,
+
+  importCatalog: (file: File, apply: boolean) => {
+    const body = new FormData();
+    body.append('file', file);
+    // Content-Type не ставим руками: его с границей формы проставляет браузер.
+    return request<CatalogImport>(`/catalog/import?apply=${apply}`, {
+      method: 'POST',
+      headers: {},
+      body,
+    });
+  },
 
   /**
    * Матрица с окном строк. Итоги, KPI и счётчики в ответе — по всей выборке,

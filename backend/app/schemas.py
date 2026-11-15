@@ -285,6 +285,30 @@ class PairOut(BaseModel_):
     fact_count: int = 0
 
 
+class CatalogTallyOut(BaseModel_):
+    """Счётчик с примерами: по одному числу не понять, что именно произойдёт."""
+
+    count: int
+    examples: list[str] = []
+
+
+class CatalogImportOut(BaseModel_):
+    """Что файл номенклатуры изменит (или изменил) — задача B-15."""
+
+    applied: bool
+    rows_read: int
+    total_changes: int
+    new_categories: CatalogTallyOut
+    new_suppliers: CatalogTallyOut
+    new_products: CatalogTallyOut
+    updated_products: CatalogTallyOut
+    new_pairs: CatalogTallyOut
+    updated_pairs: CatalogTallyOut
+    price_records: CatalogTallyOut
+    #: Строки, которые в работу не взяли, — с номером строки файла и причиной.
+    issues: CatalogTallyOut
+
+
 class WeekOut(BaseModel_):
     key: str
     year: int

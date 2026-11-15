@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api } from '../api';
 import type { Category, Pair, Product, Store, Supplier } from '../types';
+import { CatalogImportPanel } from './CatalogImportPanel';
 
 /**
  * Экран справочников (задача B-14): кабинеты, поставщики, категории, товары
@@ -185,6 +186,20 @@ export function CatalogPage({ canEdit, onError, onChanged }: Props) {
 
       {notice && (
         <p className={notice.kind === 'bad' ? 'inline-warning' : 'inline-note'}>{notice.text}</p>
+      )}
+
+      {/* Загрузка файлом живёт у товаров: кабинеты она не заводит, а категории
+          и поставщики приезжают вместе с номенклатурой. */}
+      {section === 'products' && (
+        <CatalogImportPanel
+          canEdit={canEdit}
+          onError={onError}
+          onApplied={() => {
+            void load();
+            onChanged();
+            setNotice({ kind: 'ok', text: 'Каталог обновлён из файла' });
+          }}
+        />
       )}
 
       {section === 'products' && (

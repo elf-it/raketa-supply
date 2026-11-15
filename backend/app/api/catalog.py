@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi import status as http_status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -22,6 +22,7 @@ from ..config import get_settings
 from ..db import get_session
 from ..models import Category, Product, Store, StoreProduct, Supplier, User, WeekFact
 from ..schemas import (
+    CatalogImportOut,
     CategoryIn,
     CategoryOut,
     CategoryUpdateIn,
@@ -43,9 +44,12 @@ from ..schemas import (
     SupplierUpdateIn,
 )
 from ..services import catalog as catalog_service
+from ..services import catalog_import
 from ..services import prices as price_service
+from ..services.catalog_export import build_catalog_workbook, catalog_filename
 from ..services.matrix import load_app_settings
 from .deps import require_editor
+from .responses import xlsx_response
 
 router = APIRouter(prefix="/catalog", tags=["Справочники"])
 
@@ -673,6 +677,56 @@ def delete_pair(
     except catalog_service.CatalogError as error:
         raise _refusal(error) from error
     return _no_content()
+
+
+# ------------------------------------- загрузка номенклатуры файлом (задача B-15)
+
+
+@router.get("/export", summary="Выгрузка каталога в XLSX (она же шаблон загрузки)")
+def export_catalog(session: Session = Depends(get_session)) -> Response:
+    """Весь каталог одной таблицей, в том же виде, в каком принимается загрузка.
+
+    Отдельного пустого шаблона нет: на пустой базе в книге только шапка — это
+    и есть шаблон. Шаблон, живущий сам по себе, рано или поздно разошёлся бы
+    с тем, что система умеет читать.
+    """
+    return xlsx_response(
+        build_catalog_workbook(session),
+        catalog_filename(),
+        "catalog.xlsx",
+    )
+
+
+@router.post(
+    "/import",
+    response_model=CatalogImportOut,
+    summary="Загрузка номенклатуры из файла",
+)
+def import_catalog(
+    file: UploadFile = File(..., description="Книга с номенклатурой"),
+    apply: bool = Query(False, description="false — только разбор, в базу ничего не пишется"),
+    session: Session = Depends(get_session),
+    user: User = Depends(require_editor),
+) -> CatalogImportOut:
+    """Заводит из файла товары, категории, поставщиков и пары (магазин, товар).
+
+    По умолчанию ничего не пишет: сначала человек видит, что именно изменится,
+    и только потом подтверждает. Файл приходит дважды — разбор и применение
+    независимы, и сервер между ними ничего не помнит.
+
+    Пишет не эта ручка, а сервисы справочников и цен: загрузка не должна
+    обходить правила, ради которых они существуют.
+    """
+    data = file.file.read()
+    try:
+        plan = (
+            catalog_import.apply_import(session, data, author=user.display_name)
+            if apply
+            else catalog_import.analyze(session, data)
+        )
+    except catalog_import.CatalogImportError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return CatalogImportOut.model_validate(plan)
 
 
 @router.get("/settings", response_model=SettingsOut, summary="Настройки расчёта")
