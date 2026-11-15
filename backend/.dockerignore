@@ -1,0 +1,11 @@
+# В образ не должно попасть ничего, что не нужно приложению в проде.
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+tests/
+raketa.db
+*.db
+.env
+requirements-dev.txt

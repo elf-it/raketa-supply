@@ -1,0 +1,93 @@
+# Боевая сборка: база, миграции, бэкенд, интерфейс (задача A-7).
+#
+#   cp .env.prod.example .env && заполнить SECRET_KEY и пароль базы
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml run --rm backend python -m app.admin почта "Имя"
+#
+# HTTPS здесь нет намеренно: сертификаты, домен и их продление — дело того,
+# кто разворачивает (вопрос Q-16). Перед этим compose ставят свой прокси
+# с TLS, и тогда приложению нужен TRUSTED_PROXY_HOPS=2: прокси стало два.
+# Без HTTPS COOKIE_SECURE=true не даст войти ниоткуда, кроме localhost.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-raketa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD не задан — укажите его в .env}
+      POSTGRES_DB: ${POSTGRES_DB:-raketa}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-raketa}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Порт наружу не выставлен: база нужна только службам этого compose.
+
+  # Миграции — отдельный шаг, а не часть старта приложения: несколько воркеров
+  # начали бы мигрировать одновременно. Служба отрабатывает и завершается,
+  # бэкенд ждёт именно её успешного завершения.
+  migrate:
+    build: ./backend
+    command: ['alembic', 'upgrade', 'head']
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-raketa}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-raketa}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-raketa}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-raketa}
+      # Вне отладки приложение не стартует с ключом по умолчанию и с кукой
+      # по открытому HTTP — обе проверки включает именно DEBUG=false.
+      DEBUG: 'false'
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY не задан — сгенерируйте ключ и укажите его в .env}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-12}
+      # Перед бэкендом ровно один прокси — nginx из службы web.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      # В контейнере логи читают из `docker compose logs`, и собирает их
+      # драйвер логов, а не человек: строка-объект удобнее глазастой строки.
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WB_CLIENT: ${WB_CLIENT:-http}
+      WB_TOKENS: ${WB_TOKENS:-}
+      SYNC_STALE_HOURS: ${SYNC_STALE_HOURS:-36}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Живость, а не готовность: по этой проверке контейнер перезапускают,
+    # и падать из-за неудачной загрузки WB он не должен. Готовность
+    # (/api/v1/health/ready) — для внешнего мониторинга, задача G-4.
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health').read()",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - '${WEB_PORT:-8080}:80'
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
