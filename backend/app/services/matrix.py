@@ -234,7 +234,14 @@ def load_pairs(session: Session, filters: MatrixFilters) -> list[Pair]:
         .join(Store, Store.id == StoreProduct.store_id)
         .join(Product, Product.id == StoreProduct.product_id)
         .outerjoin(Category, Category.id == Product.category_id)
-        .where(StoreProduct.is_active.is_(True), Store.is_active.is_(True))
+        # Снятый с продажи товар и отключённый кабинет из расчёта выпадают вместе
+        # со своими парами (задача B-14): иначе «снять с продажи» в справочнике
+        # ничего бы не значило, и позиция продолжала бы просить закупку.
+        .where(
+            StoreProduct.is_active.is_(True),
+            Store.is_active.is_(True),
+            Product.is_active.is_(True),
+        )
     )
     if filters.store_id:
         stmt = stmt.where(StoreProduct.store_id == filters.store_id)

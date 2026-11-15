@@ -103,6 +103,14 @@ export interface Category {
   abc_class: string | null;
 }
 
+export interface Supplier {
+  id: number;
+  name: string;
+  lead_time_days: number;
+  moq: number;
+  product_count: number;
+}
+
 export interface Product {
   id: number;
   vendor_code: string;
@@ -118,6 +126,30 @@ export interface Product {
   pack_size: number | null;
   /** С какой даты действуют нынешние цены; пусто — истории цен нет. */
   price_valid_from: string | null;
+  category_id: number | null;
+  supplier_id: number | null;
+  coverage_weeks: number | null;
+  safety_weeks: number | null;
+  /** Снятый с продажи товар выпадает из расчёта вместе со своими парами. */
+  is_active: boolean;
+  /** В скольких кабинетах товар заведён: без пары он нигде не считается. */
+  store_count: number;
+}
+
+/** Товар в кабинете — минимальная расчётная единица (задача B-14). */
+export interface Pair {
+  id: number;
+  store_id: number;
+  store_code: string;
+  store_name: string;
+  store_active: boolean;
+  /** Номер номенклатуры кабинета: по нему загрузка WB находит эту пару. */
+  nm_id: string | null;
+  barcode: string | null;
+  base_potential: number;
+  is_active: boolean;
+  /** Сколько фактов уже привязано: по нему видно, можно ли пару удалить. */
+  fact_count: number;
 }
 
 /** Запись истории цен: значения, действующие с даты. */

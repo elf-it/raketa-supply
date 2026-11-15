@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, setUnauthorizedHandler } from './api';
 import { BasePotentialPage } from './components/BasePotentialPage';
 import { BulkPanel } from './components/BulkPanel';
+import { CatalogPage } from './components/CatalogPage';
 import { ChangePassword } from './components/ChangePassword';
 import { ImportPanel } from './components/ImportPanel';
 import { JournalPage } from './components/JournalPage';
@@ -56,6 +57,7 @@ type Tab =
   | 'potential'
   | 'seasonality'
   | 'prices'
+  | 'catalog'
   | 'journal'
   | 'users';
 
@@ -66,6 +68,7 @@ const TABS: { id: Tab; label: string; adminOnly?: boolean }[] = [
   { id: 'potential', label: 'Потенциал' },
   { id: 'seasonality', label: 'Сезонность' },
   { id: 'prices', label: 'Цены' },
+  { id: 'catalog', label: 'Справочники' },
   { id: 'journal', label: 'Журнал' },
   { id: 'users', label: 'Пользователи', adminOnly: true },
 ];
@@ -160,15 +163,25 @@ export default function App() {
 
   const canEdit = user?.role === 'editor' || user?.role === 'admin';
 
+  /**
+   * Списки для фильтров. Перечитываются не только при входе: экран справочников
+   * может завести кабинет или категорию, и выпадающие списки должны их увидеть,
+   * не дожидаясь перезагрузки страницы.
+   */
+  const loadLookups = useCallback(async () => {
+    try {
+      const [s, c] = await Promise.all([api.stores(), api.categories()]);
+      setStores(s);
+      setCategories(c);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, []);
+
   useEffect(() => {
     if (!user) return;
-    Promise.all([api.stores(), api.categories()])
-      .then(([s, c]) => {
-        setStores(s);
-        setCategories(c);
-      })
-      .catch((err: Error) => setError(err.message));
-  }, [user]);
+    void loadLookups();
+  }, [user, loadLookups]);
 
   const reload = useCallback(async () => {
     // Экраны потенциала и сезонности грузят себя сами.
@@ -744,6 +757,21 @@ export default function App() {
       {tab === 'seasonality' && <SeasonalityPage onError={setError} canEdit={canEdit} />}
 
       {tab === 'prices' && <PricesPage onError={setError} canEdit={canEdit} />}
+
+      {tab === 'catalog' && (
+        <CatalogPage
+          onError={setError}
+          canEdit={canEdit}
+          onChanged={() => {
+            // Правка справочника меняет расчёт: новый товар в кабинете, снятый
+            // с продажи артикул, другой срок поставки. Прошлые числа на экранах
+            // матрицы и закупки после этого не годятся.
+            setMatrix(null);
+            setPurchase(null);
+            void loadLookups();
+          }}
+        />
+      )}
 
       {tab === 'journal' && <JournalPage filters={pageFilters} onError={setError} />}
 

@@ -8,7 +8,7 @@ from typing import Annotated
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from .calc import BulkOperation, Level, Status
-from .models import OrderStatus, Role
+from .models import Marketplace, OrderStatus, Role
 
 
 def _with_utc(value: datetime) -> datetime:
@@ -98,6 +98,14 @@ class ProductOut(BaseModel_):
     #: С какой даты действуют нынешние цены (задача B-9). Пусто — истории цен
     #: нет: товар достался системе с ценой, но без даты её появления.
     price_valid_from: date | None = None
+    # Дальше — для экрана справочников (задача B-14): идентификаторы связей нужны
+    # формам правки, а число кабинетов отвечает на вопрос «а он вообще считается».
+    category_id: int | None = None
+    supplier_id: int | None = None
+    coverage_weeks: int | None = None
+    safety_weeks: float | None = None
+    is_active: bool = True
+    store_count: int = 0
 
 
 class PriceIn(BaseModel_):
@@ -136,6 +144,145 @@ class PriceCardOut(BaseModel_):
     price: float
     valid_from: date | None = None
     history: list[PriceOut] = []
+
+
+# ------------------------------------------- ведение справочников (задача B-14)
+#
+# Цен в этих схемах нет намеренно: действующие значения карточки пишет только
+# сервис цен, иначе карточка и история разойдутся. Исключение — начальная цена
+# при заведении товара: она проводится через тот же сервис и становится первой
+# записью истории.
+
+
+class SupplierOut(BaseModel_):
+    id: int
+    name: str
+    lead_time_days: int
+    moq: int
+    product_count: int = 0
+
+
+class StoreIn(BaseModel_):
+    code: str = Field(min_length=1, max_length=32)
+    name: str = Field(min_length=1, max_length=128)
+    marketplace: Marketplace = Marketplace.WB
+    #: Внешний идентификатор кабинета; ключ API задаётся только в окружении.
+    cabinet_ref: str | None = Field(default=None, max_length=64)
+
+
+class StoreUpdateIn(BaseModel_):
+    """Код кабинета не меняется: по нему ищется ключ API в ``WB_TOKENS``."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    marketplace: Marketplace | None = None
+    cabinet_ref: str | None = Field(default=None, max_length=64)
+    is_active: bool | None = None
+
+
+class SupplierIn(BaseModel_):
+    name: str = Field(min_length=1, max_length=128)
+    lead_time_days: int = Field(default=14, ge=0, le=365)
+    moq: int = Field(default=0, ge=0)
+
+
+class SupplierUpdateIn(BaseModel_):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    lead_time_days: int | None = Field(default=None, ge=0, le=365)
+    moq: int | None = Field(default=None, ge=0)
+
+
+class CategoryIn(BaseModel_):
+    name: str = Field(min_length=1, max_length=128)
+    niche: str | None = Field(default=None, max_length=128)
+    abc_class: str | None = Field(default=None, max_length=2)
+
+
+class CategoryUpdateIn(BaseModel_):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    niche: str | None = Field(default=None, max_length=128)
+    abc_class: str | None = Field(default=None, max_length=2)
+
+
+class ProductIn(BaseModel_):
+    """Новая номенклатура.
+
+    Пустые ограничения закупки означают «брать из поставщика или настроек» —
+    это не то же самое, что ноль.
+    """
+
+    vendor_code: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=256)
+    category_id: int | None = None
+    supplier_id: int | None = None
+    volume_m3: float = Field(default=0.0, ge=0)
+    lead_time_days: int | None = Field(default=None, ge=0, le=365)
+    moq: int | None = Field(default=None, ge=0)
+    pack_size: int | None = Field(default=None, ge=1)
+    coverage_weeks: int | None = Field(default=None, ge=0, le=104)
+    safety_weeks: float | None = Field(default=None, ge=0, le=104)
+    #: Начальная себестоимость и цена: уйдут в историю цен первой записью.
+    cost_price: float | None = Field(default=None, ge=0)
+    price: float | None = Field(default=None, ge=0)
+
+
+class ProductUpdateIn(BaseModel_):
+    """Карточка без цен: себестоимость и цена правятся на экране цен.
+
+    ``clear`` снимает ограничение обратно к значению по умолчанию: отличить
+    «не передали поле» от «обнулить» иначе нельзя.
+
+    Лишние поля не принимаются — ровно ради цен: попытка записать себестоимость
+    через карточку должна получить отказ, а не молчание. Молча пропущенная цена
+    выглядела бы как сохранённая, и человек ушёл бы с экрана, считая дело
+    сделанным, пока карточка и история цен расходятся.
+    """
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    vendor_code: str | None = Field(default=None, min_length=1, max_length=64)
+    title: str | None = Field(default=None, min_length=1, max_length=256)
+    category_id: int | None = None
+    supplier_id: int | None = None
+    volume_m3: float | None = Field(default=None, ge=0)
+    lead_time_days: int | None = Field(default=None, ge=0, le=365)
+    moq: int | None = Field(default=None, ge=0)
+    pack_size: int | None = Field(default=None, ge=1)
+    coverage_weeks: int | None = Field(default=None, ge=0, le=104)
+    safety_weeks: float | None = Field(default=None, ge=0, le=104)
+    is_active: bool | None = None
+    clear: list[str] = []
+
+
+class PairIn(BaseModel_):
+    """Товар в кабинете — минимальная расчётная единица."""
+
+    store_id: int
+    #: Идентификатор номенклатуры в кабинете WB: по нему загрузка находит пару.
+    nm_id: str | None = Field(default=None, max_length=32)
+    barcode: str | None = Field(default=None, max_length=64)
+    base_potential: float = Field(default=0.0, ge=0)
+
+
+class PairUpdateIn(BaseModel_):
+    nm_id: str | None = Field(default=None, max_length=32)
+    barcode: str | None = Field(default=None, max_length=64)
+    base_potential: float | None = Field(default=None, ge=0)
+    is_active: bool | None = None
+
+
+class PairOut(BaseModel_):
+    id: int
+    store_id: int
+    store_code: str
+    store_name: str
+    store_active: bool
+    nm_id: str | None = None
+    barcode: str | None = None
+    base_potential: float
+    is_active: bool
+    #: Сколько недельных фактов уже привязано к паре: по этому числу видно,
+    #: можно ли её удалить или остаётся только отключить.
+    fact_count: int = 0
 
 
 class WeekOut(BaseModel_):

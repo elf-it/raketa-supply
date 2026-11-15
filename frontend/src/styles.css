@@ -1714,3 +1714,33 @@ button.link.danger {
 .row-subtitle.danger-text {
   color: var(--danger);
 }
+
+/* --- Справочники (B-14) ------------------------------------------------------ */
+
+/* Поле правки в строке рассчитано на название; для чисел такая ширина разносит
+   таблицу поставщиков на полэкрана. */
+input.name-edit.num-edit {
+  min-width: 60px;
+  width: 70px;
+  text-align: right;
+}
+
+/* Формы справочников — те же, что у цен; выпадающие списки в них должны
+   выглядеть как поля ввода, иначе строка формы разъезжается по высоте. */
+.price-form select {
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  min-width: 140px;
+}
+
+/* Поиск по товарам живёт в переключателе справочников, а не в общей полосе
+   фильтров: та относится к расчётным экранам. */
+.level-switch input.search {
+  margin-left: auto;
+  max-width: 260px;
+}

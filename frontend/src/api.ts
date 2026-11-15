@@ -13,12 +13,14 @@ import type {
   Order,
   OrderDraft,
   OrderStatus,
+  Pair,
   PriceCard,
   Product,
   PurchasePlan,
   Role,
   SeasonalityRow,
   Store,
+  Supplier,
   User,
 } from './types';
 
@@ -65,6 +67,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(response.status, detail);
   }
+  // Удаление отвечает 204 без тела: разбирать там нечего, а `json()` на пустом
+  // ответе бросает исключение — успешный запрос выглядел бы ошибкой.
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -144,6 +149,108 @@ export const api = {
 
   deletePrice: (productId: number, priceId: number) =>
     request<PriceCard>(`/catalog/products/${productId}/prices/${priceId}`, { method: 'DELETE' }),
+
+  // Ведение справочников (задача B-14). Цен здесь нет: в действующую цену пишет
+  // только сервис цен, иначе карточка и история разойдутся. Удаление отвечает
+  // 204 и отказывает (422), если на запись ссылаются факты, заказы или товары —
+  // такую запись отключают, а не удаляют.
+  suppliers: () => request<Supplier[]>('/catalog/suppliers'),
+
+  createStore: (payload: { code: string; name: string; marketplace?: string }) =>
+    request<Store>('/catalog/stores', { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateStore: (storeId: number, payload: { name?: string; is_active?: boolean }) =>
+    request<Store>(`/catalog/stores/${storeId}`, { method: 'PUT', body: JSON.stringify(payload) }),
+
+  deleteStore: (storeId: number) =>
+    request<void>(`/catalog/stores/${storeId}`, { method: 'DELETE' }),
+
+  createSupplier: (payload: { name: string; lead_time_days?: number; moq?: number }) =>
+    request<Supplier>('/catalog/suppliers', { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateSupplier: (
+    supplierId: number,
+    payload: { name?: string; lead_time_days?: number; moq?: number },
+  ) =>
+    request<Supplier>(`/catalog/suppliers/${supplierId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteSupplier: (supplierId: number) =>
+    request<void>(`/catalog/suppliers/${supplierId}`, { method: 'DELETE' }),
+
+  createCategory: (payload: { name: string; niche?: string | null; abc_class?: string | null }) =>
+    request<Category>('/catalog/categories', { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateCategory: (
+    categoryId: number,
+    payload: { name?: string; niche?: string | null; abc_class?: string | null },
+  ) =>
+    request<Category>(`/catalog/categories/${categoryId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteCategory: (categoryId: number) =>
+    request<void>(`/catalog/categories/${categoryId}`, { method: 'DELETE' }),
+
+  createProduct: (payload: {
+    vendor_code: string;
+    title: string;
+    category_id?: number | null;
+    supplier_id?: number | null;
+    volume_m3?: number;
+    lead_time_days?: number | null;
+    moq?: number | null;
+    pack_size?: number | null;
+    cost_price?: number | null;
+    price?: number | null;
+  }) => request<Product>('/catalog/products', { method: 'POST', body: JSON.stringify(payload) }),
+
+  updateProduct: (
+    productId: number,
+    payload: {
+      vendor_code?: string;
+      title?: string;
+      category_id?: number | null;
+      supplier_id?: number | null;
+      volume_m3?: number;
+      lead_time_days?: number | null;
+      moq?: number | null;
+      pack_size?: number | null;
+      is_active?: boolean;
+      clear?: string[];
+    },
+  ) =>
+    request<Product>(`/catalog/products/${productId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteProduct: (productId: number) =>
+    request<void>(`/catalog/products/${productId}`, { method: 'DELETE' }),
+
+  // Пары товара: ответ на добавление — весь список, потому что экран показывает
+  // его целиком, а не только добавленную строку.
+  productStores: (productId: number) =>
+    request<Pair[]>(`/catalog/products/${productId}/stores`),
+
+  addProductStore: (
+    productId: number,
+    payload: { store_id: number; nm_id?: string | null; base_potential?: number },
+  ) =>
+    request<Pair[]>(`/catalog/products/${productId}/stores`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updatePair: (
+    pairId: number,
+    payload: { nm_id?: string | null; base_potential?: number; is_active?: boolean },
+  ) => request<Pair>(`/catalog/pairs/${pairId}`, { method: 'PUT', body: JSON.stringify(payload) }),
+
+  deletePair: (pairId: number) => request<void>(`/catalog/pairs/${pairId}`, { method: 'DELETE' }),
 
   /**
    * Матрица с окном строк. Итоги, KPI и счётчики в ответе — по всей выборке,
