@@ -118,6 +118,7 @@ docker-compose.prod.yml   боевая сборка: база, миграции,
 ```
 
 Почему именно так — [docs/01-architecture.md](docs/01-architecture.md).
+Кейсы приёмки, которые можно запустить, — [docs/05-test-cases.md](docs/05-test-cases.md).
 Формулы и принятые допущения — [docs/03-calc-spec.md](docs/03-calc-spec.md).
 Замеры на объёме и кэш расчёта — [docs/08-performance.md](docs/08-performance.md).
 Развёртывание на сервере и разбор сбоев — [docs/09-runbook.md](docs/09-runbook.md).
