@@ -4,6 +4,7 @@ import type {
   BulkResult,
   CatalogImport,
   Category,
+  DuplicateHint,
   CurrentUser,
   JournalBatchPage,
   JournalPage,
@@ -23,6 +24,7 @@ import type {
   Store,
   Supplier,
   SyncHealth,
+  Unmatched,
   User,
 } from './types';
 
@@ -253,6 +255,24 @@ export const api = {
   ) => request<Pair>(`/catalog/pairs/${pairId}`, { method: 'PUT', body: JSON.stringify(payload) }),
 
   deletePair: (pairId: number) => request<void>(`/catalog/pairs/${pairId}`, { method: 'DELETE' }),
+
+  // Сопоставление SKU (задача B-10). Номера, которые загрузка не смогла
+  // положить ни на одну пару, и товары, похожие на дубли.
+  unmatched: () => request<Unmatched[]>('/catalog/unmatched'),
+
+  bindUnmatched: (payload: { store_id: number; nm_id: string; product_id: number }) =>
+    request<Pair[]>('/catalog/unmatched/bind', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  duplicates: () => request<DuplicateHint[]>('/catalog/duplicates'),
+
+  mergeProducts: (productId: number, into: number) =>
+    request<{ moved_pairs: number; moved_facts: number }>(
+      `/catalog/products/${productId}/merge`,
+      { method: 'POST', body: JSON.stringify({ into }) },
+    ),
 
   // Загрузка номенклатуры файлом (задача B-15). Та же дорога, что у правок
   // прогноза: сначала разбор без записи, потом применение того же файла.

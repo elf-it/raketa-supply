@@ -23,10 +23,14 @@ from ..db import get_session
 from ..models import Category, Product, Store, StoreProduct, Supplier, User, WeekFact
 from ..observability import event
 from ..schemas import (
+    BindIn,
     CatalogImportOut,
     CategoryIn,
     CategoryOut,
     CategoryUpdateIn,
+    DuplicateHintOut,
+    MergeIn,
+    MergeOut,
     PairIn,
     PairOut,
     PairUpdateIn,
@@ -43,9 +47,10 @@ from ..schemas import (
     SupplierIn,
     SupplierOut,
     SupplierUpdateIn,
+    UnmatchedOut,
 )
 from ..services import catalog as catalog_service
-from ..services import catalog_import
+from ..services import catalog_import, matching
 from ..services import prices as price_service
 from ..services.catalog_export import build_catalog_workbook, catalog_filename
 from ..services.matrix import load_app_settings
@@ -678,6 +683,88 @@ def delete_pair(
     except catalog_service.CatalogError as error:
         raise _refusal(error) from error
     return _no_content()
+
+
+# ------------------------------------------- сопоставление SKU (задача B-10)
+
+
+@router.get(
+    "/unmatched",
+    response_model=list[UnmatchedOut],
+    summary="Номенклатуры WB, которых нет в каталоге",
+)
+def list_unmatched(
+    store_id: int | None = Query(None),
+    session: Session = Depends(get_session),
+) -> list[UnmatchedOut]:
+    """Номера, которые загрузка пропустила: их продажи сейчас не считаются."""
+    return [UnmatchedOut.model_validate(row) for row in matching.unmatched(session, store_id)]
+
+
+@router.post(
+    "/unmatched/bind",
+    response_model=list[PairOut],
+    summary="Привязать номенклатуру к товару",
+)
+def bind_unmatched(
+    payload: BindIn,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_editor),
+) -> list[PairOut]:
+    """Заводит пару с этим номером или проставляет его существующей паре.
+
+    Факты по номеру приедут следующей загрузкой: задним числом система
+    их не перезапрашивает.
+    """
+    try:
+        matching.bind(
+            session,
+            store_id=payload.store_id,
+            nm_id=payload.nm_id,
+            product_id=payload.product_id,
+        )
+    except matching.MatchError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except (catalog_service.CatalogError, catalog_service.CatalogConflict) as error:
+        raise _refusal(error) from error
+    return _pairs_out(session, catalog_service.pairs_of(session, payload.product_id))
+
+
+@router.get(
+    "/duplicates",
+    response_model=list[DuplicateHintOut],
+    summary="Товары, похожие на дубли",
+)
+def list_duplicates(session: Session = Depends(get_session)) -> list[DuplicateHintOut]:
+    """Один товар, заведённый дважды, делит спрос и закупку пополам."""
+    return [
+        DuplicateHintOut.model_validate(hint) for hint in matching.duplicate_candidates(session)
+    ]
+
+
+@router.post(
+    "/products/{product_id}/merge",
+    response_model=MergeOut,
+    summary="Слить товар в другой",
+)
+def merge_products(
+    product_id: int,
+    payload: MergeIn,
+    session: Session = Depends(get_session),
+    _: User = Depends(require_editor),
+) -> MergeOut:
+    """Переносит кабинеты исходного товара на целевой вместе с их прошлым.
+
+    Исходный товар не удаляется, а снимается с продажи: у него остаётся своя
+    история цен, и убрать её — отдельное решение человека.
+    """
+    source = _product_or_404(session, product_id)
+    target = _product_or_404(session, payload.into)
+    try:
+        result = matching.merge(session, source=source, target=target)
+    except matching.MatchError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return MergeOut.model_validate(result)
 
 
 # ------------------------------------- загрузка номенклатуры файлом (задача B-15)

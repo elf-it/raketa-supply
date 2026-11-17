@@ -155,6 +155,31 @@ export interface SyncHealth {
   stores: StoreSync[];
 }
 
+/** Номенклатура кабинета, которой нет в каталоге (задача B-10). */
+export interface Unmatched {
+  store_id: number;
+  store_code: string;
+  store_name: string;
+  nm_id: string;
+  first_seen: string;
+  last_seen: string;
+  /** В скольких прогонах загрузки номер встретился. */
+  times_seen: number;
+}
+
+/** Подсказка о дубле: решает человек, система только показывает похожих. */
+export interface DuplicateHint {
+  reason: string;
+  left_id: number;
+  left_code: string;
+  left_title: string;
+  left_pairs: number;
+  right_id: number;
+  right_code: string;
+  right_title: string;
+  right_pairs: number;
+}
+
 /** Счётчик с примерами: по одному числу не понять, что именно произойдёт. */
 export interface CatalogTally {
   count: number;

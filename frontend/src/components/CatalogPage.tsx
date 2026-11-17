@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import type { Category, Pair, Product, Store, Supplier } from '../types';
 import { CatalogImportPanel } from './CatalogImportPanel';
+import { CatalogMatching } from './CatalogMatching';
 
 /**
  * Экран справочников (задача B-14): кабинеты, поставщики, категории, товары
@@ -19,13 +20,14 @@ import { CatalogImportPanel } from './CatalogImportPanel';
  * начальная цена при заведении товара, она уходит в историю первой записью.
  */
 
-type Section = 'products' | 'stores' | 'suppliers' | 'categories';
+type Section = 'products' | 'stores' | 'suppliers' | 'categories' | 'matching';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'products', label: 'Товары' },
   { id: 'stores', label: 'Кабинеты' },
   { id: 'suppliers', label: 'Поставщики' },
   { id: 'categories', label: 'Категории' },
+  { id: 'matching', label: 'Сопоставление' },
 ];
 
 interface Notice {
@@ -239,6 +241,18 @@ export function CatalogPage({ canEdit, onError, onChanged }: Props) {
           act={act}
           onSuppliers={setSuppliers}
           onReload={() => void load()}
+        />
+      )}
+
+      {section === 'matching' && (
+        <CatalogMatching
+          products={products}
+          canEdit={canEdit}
+          onError={onError}
+          onChanged={() => {
+            void load();
+            onChanged();
+          }}
         />
       )}
 

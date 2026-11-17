@@ -85,6 +85,7 @@ cd backend && pytest -k pr_05          # один кейс
 | `test_orders.py`, `test_order_edit.py`, `test_order_add_line.py` | Жизненный цикл заказа, правка черновика, запрет правки размещённого |
 | `test_prices.py` | История цен: новая не стирает прежнюю, карточка и история не расходятся |
 | `test_catalog_admin.py`, `test_catalog_import.py` | Ведение справочников, загрузка номенклатуры файлом, круговая проверка «выгрузили — загрузили» |
+| `test_matching.py` | Несопоставленные номенклатуры, поиск дублей, слияние товаров |
 | `test_exports.py`, `test_matrix_import.py` | Книги Excel и возврат правок, конфликты |
 | `test_auth.py`, `test_login_ratelimit.py`, `test_admin_cli.py` | Роли, сессии, счётчик попыток входа, первый администратор |
 | `test_observability.py`, `test_sync_cli.py` | Логи, номер запроса, готовность, загрузка по расписанию |

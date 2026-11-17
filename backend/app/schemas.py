@@ -305,6 +305,54 @@ class SyncHealthOut(BaseModel_):
     stores: list[StoreSyncOut] = []
 
 
+# ------------------------------------------- сопоставление SKU (задача B-10)
+
+
+class UnmatchedOut(BaseModel_):
+    """Номенклатура кабинета, которой нет в каталоге."""
+
+    store_id: int
+    store_code: str
+    store_name: str
+    nm_id: str
+    first_seen: UtcDatetime
+    last_seen: UtcDatetime
+    #: В скольких прогонах загрузки номер встретился.
+    times_seen: int
+
+
+class BindIn(BaseModel_):
+    store_id: int
+    nm_id: str = Field(min_length=1, max_length=32)
+    product_id: int
+
+
+class DuplicateHintOut(BaseModel_):
+    """Подсказка, а не вывод: решает человек."""
+
+    reason: str
+    left_id: int
+    left_code: str
+    left_title: str
+    left_pairs: int
+    right_id: int
+    right_code: str
+    right_title: str
+    right_pairs: int
+
+
+class MergeIn(BaseModel_):
+    #: Товар, в который переносят пары.
+    into: int
+
+
+class MergeOut(BaseModel_):
+    moved_pairs: int
+    moved_facts: int
+    source_id: int
+    target_id: int
+
+
 class CatalogTallyOut(BaseModel_):
     """Счётчик с примерами: по одному числу не понять, что именно произойдёт."""
 

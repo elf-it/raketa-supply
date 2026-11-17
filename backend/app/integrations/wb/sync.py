@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from ...calc import week_key
 from ...models import Store, StoreProduct, SyncRun, SyncStatus, WeekFact
 from ...observability import event
+from ...services.matching import remember_unmatched
 from .client import WbClient
 
 
@@ -129,6 +130,11 @@ def sync_store(
             run.message = f"не сопоставлено номенклатур: {len(unknown)}"
         run.finished_at = _now()
         session.commit()
+        # Номера, которые некуда положить, запоминаются после записи фактов:
+        # иначе в журнале остаётся «не сопоставлено: 7», и какие именно —
+        # узнать негде (задача B-10). Отдельной записью, уже после коммита:
+        # упавший прогон не должен оставлять за собой список.
+        remember_unmatched(session, store.id, unknown)
         event(
             "кабинет загружен",
             store=store.code,

@@ -77,22 +77,24 @@ def test_pr_01_cabinets_never_mix(client):
     факты — ключ факта это тройка (магазин, товар, неделя).
     """
     stores = client.get(f"{CATALOG}/stores").json()
-    before = _matrix(client)
-    fact_before = sum(
-        _num(row["metrics"]["fact_sales"][week])
-        for row in before["rows"]
-        for week in before["totals"]["metrics"]["fact_sales"]
-    )
 
+    def facts() -> float:
+        payload = _matrix(client)
+        return sum(
+            _num(row["metrics"]["fact_sales"][week])
+            for row in payload["rows"]
+            for week in payload["totals"]["metrics"]["fact_sales"]
+        )
+
+    # Сравниваются две одинаковые загрузки, а не загрузка с состоянием сида:
+    # сид грузит своё окно дней, и разница в окне — это не двойной учёт.
     assert client.post("/api/v1/sync/wb").status_code == 200
+    fact_before = facts()
+    assert client.post("/api/v1/sync/wb").status_code == 200
+    fact_after = facts()
 
-    after = _matrix(client)
-    fact_after = sum(
-        _num(row["metrics"]["fact_sales"][week])
-        for row in after["rows"]
-        for week in after["totals"]["metrics"]["fact_sales"]
-    )
     assert fact_after == approx(fact_before), "повторная загрузка удвоила факты"
+    after = _matrix(client)
 
     counted = 0
     for store in stores:

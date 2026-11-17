@@ -416,6 +416,33 @@ class SyncRun(Base):
     message: Mapped[str | None] = mapped_column(Text, default=None)
 
 
+class UnmatchedNmId(Base):
+    """Номенклатура кабинета, которой нет в каталоге (задача B-10).
+
+    Загрузка WB находит пару по ``nm_id`` в пределах кабинета. Незнакомый номер
+    она пропускает — и раньше он исчезал вместе с отчётом о прогоне: в журнале
+    оставалось только число «не сопоставлено: 7», а какие именно, узнать было
+    негде. Теперь они копятся здесь, чтобы человек мог привязать их к товарам.
+
+    Строка живёт, пока номер не сопоставлен: привязка и очередная загрузка,
+    увидевшая номер уже известным, её убирают.
+    """
+
+    __tablename__ = "unmatched_nm_ids"
+    __table_args__ = (UniqueConstraint("store_id", "nm_id", name="uq_unmatched_nm_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id", ondelete="CASCADE"), index=True)
+    nm_id: Mapped[str] = mapped_column(String(32), index=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    #: В скольких прогонах загрузки номер встретился. Один раз — возможно,
+    #: разовая строка из архива; десять — товар продаётся, а мы его не считаем.
+    times_seen: Mapped[int] = mapped_column(Integer, default=1)
+
+    store: Mapped[Store] = relationship()
+
+
 class LoginAttempt(Base):
     """Неудачная попытка входа (задача G-12).
 
