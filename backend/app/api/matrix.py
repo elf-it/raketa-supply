@@ -6,11 +6,11 @@ from sqlalchemy.orm import Session
 from ..calc import Level, Status
 from ..db import get_session
 from ..models import StoreProduct, User
-from ..schemas import MatrixImportOut, MatrixOut
-from ..services import matrix_import
+from ..schemas import MatrixImportOut, MatrixOut, ReconcileOut
+from ..services import matrix_import, reconcile
 from ..services.matrix import MatrixFilters, build_matrix
 from ..services.matrix_export import build_matrix_workbook, matrix_filename
-from .deps import require_editor
+from .deps import require_editor, require_viewer
 from .responses import filter_names, xlsx_response
 
 router = APIRouter(prefix="/matrix", tags=["Матрица"])
@@ -151,6 +151,49 @@ def import_matrix(
         changes=report.changes[:IMPORT_PREVIEW_ROWS],  # type: ignore[arg-type]
         conflicts=report.conflicts[:IMPORT_PREVIEW_ROWS],  # type: ignore[arg-type]
         issues=report.issues,  # type: ignore[arg-type]
+    )
+
+
+#: Сколько расхождений кладём в ответ подробно. Остальное — в счётчиках
+#: по причинам: список из пяти тысяч строк человек не читает.
+RECONCILE_PREVIEW_ROWS = 100
+
+
+@router.post(
+    "/reconcile",
+    response_model=ReconcileOut,
+    summary="Сверка прогноза с файлом заказчика",
+)
+def reconcile_matrix(
+    file: UploadFile = File(..., description="Файл заказчика: артикул, неделя, прогноз"),
+    session: Session = Depends(get_session),
+    _: User = Depends(require_viewer),
+) -> ReconcileOut:
+    """Сравнивает наши числа с файлом и говорит, в чём причина расхождений.
+
+    **В базу не пишется ничего** — это вопрос «почему у нас по-разному»,
+    а не загрузка данных. Поэтому и прав достаточно на просмотр: сверку
+    запускает тот, кто отвечает за цифры, а не только редактор.
+    """
+    data = file.file.read()
+    try:
+        report = reconcile.reconcile(session, data, filename=file.filename or "")
+    except reconcile.ReconcileError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    return ReconcileOut(
+        rows_read=report.rows_read,
+        compared=report.compared,
+        matched=report.matched,
+        diverged=report.diverged,
+        median_ratio=report.median_ratio,
+        ratio_share=report.ratio_share,
+        status_compared=report.status_compared,
+        status_mismatched=report.status_mismatched,
+        status_examples=report.status_examples,
+        verdict=report.verdict,
+        reasons=report.reasons,  # type: ignore[arg-type]
+        lines=report.lines[:RECONCILE_PREVIEW_ROWS],  # type: ignore[arg-type]
     )
 
 

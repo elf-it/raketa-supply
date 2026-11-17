@@ -19,6 +19,7 @@ import type {
   PriceCard,
   Product,
   PurchasePlan,
+  Reconcile,
   Role,
   SeasonalityRow,
   Store,
@@ -335,6 +336,14 @@ export const api = {
       headers: {},
       body,
     });
+  },
+
+  // Сверка с файлом заказчика (C-10): в базу не пишется ничего, поэтому
+  // и подтверждения второго прохода здесь нет — один запрос, один ответ.
+  reconcileMatrix: (file: File) => {
+    const body = new FormData();
+    body.append('file', file);
+    return request<Reconcile>('/matrix/reconcile', { method: 'POST', headers: {}, body });
   },
 
   setForecast: (

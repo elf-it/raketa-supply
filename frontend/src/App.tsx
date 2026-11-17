@@ -12,6 +12,7 @@ import { LoginPage } from './components/LoginPage';
 import { OrdersPage } from './components/OrdersPage';
 import { PricesPage } from './components/PricesPage';
 import { PurchasePanel } from './components/PurchasePanel';
+import { ReconcilePanel } from './components/ReconcilePanel';
 import { MAX_CHART_ROWS, RowChart } from './components/RowChart';
 import { SeasonalityPage } from './components/SeasonalityPage';
 import { SyncBanner } from './components/SyncBanner';
@@ -690,6 +691,10 @@ export default function App() {
           {matrix.level === 'sku' && canEdit && (
             <ImportPanel onApplied={() => void reload()} onError={setError} />
           )}
+
+          {/* Сверка с файлом заказчика (C-10). Прав на просмотр достаточно:
+              она ничего не меняет, а отвечает за цифры не только редактор. */}
+          {matrix.level === 'sku' && <ReconcilePanel onError={setError} />}
 
           {matrix.level === 'sku' && canEdit && (
             <BulkPanel

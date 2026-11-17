@@ -675,6 +675,42 @@ class MatrixImportOut(BaseModel_):
     issues: list[ImportIssueOut] = []
 
 
+class ReconcileLineOut(BaseModel_):
+    """Одно расхождение: так, чтобы человек нашёл строку и у себя, и у нас."""
+
+    vendor_code: str
+    store_name: str
+    title: str
+    week: str
+    ours: float
+    theirs: float
+    delta: float
+    ratio: float | None = None
+    reason: str
+    #: Номер строки в файле заказчика.
+    line: int
+
+
+class ReconcileOut(BaseModel_):
+    """Результат сверки с файлом заказчика (задача C-10). Ничего не меняет."""
+
+    rows_read: int
+    compared: int
+    matched: int
+    diverged: int
+    #: Медиана отношения «наше / их» и доля ячеек рядом с ней: по ним видно,
+    #: расходится ли общий множитель или сам расчёт.
+    median_ratio: float | None = None
+    ratio_share: float | None = None
+    status_compared: int = 0
+    status_mismatched: int = 0
+    status_examples: list[str] = []
+    #: Вывод словами — то, за чем сверку и запускают.
+    verdict: str
+    reasons: list[ImportIssueOut] = []
+    lines: list[ReconcileLineOut] = []
+
+
 class BasePotentialIn(BaseModel_):
     base_potential: float = Field(ge=0)
 

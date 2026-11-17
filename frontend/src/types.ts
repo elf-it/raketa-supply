@@ -336,6 +336,38 @@ export interface MatrixImport {
   issues: ImportIssue[];
 }
 
+/** Одно расхождение сверки с файлом заказчика (C-10). */
+export interface ReconcileLine {
+  vendor_code: string;
+  store_name: string;
+  title: string;
+  week: string;
+  ours: number;
+  theirs: number;
+  delta: number;
+  ratio: number | null;
+  reason: string;
+  /** Номер строки в файле заказчика. */
+  line: number;
+}
+
+export interface Reconcile {
+  rows_read: number;
+  compared: number;
+  matched: number;
+  diverged: number;
+  /** Медиана отношения «наше / их» и доля ячеек рядом с ней. */
+  median_ratio: number | null;
+  ratio_share: number | null;
+  status_compared: number;
+  status_mismatched: number;
+  status_examples: string[];
+  /** Вывод словами — то, за чем сверку и запускают. */
+  verdict: string;
+  reasons: ImportIssue[];
+  lines: ReconcileLine[];
+}
+
 export type OrderStatus = 'draft' | 'placed' | 'received' | 'cancelled';
 
 export interface OrderLine {
