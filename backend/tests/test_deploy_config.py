@@ -72,6 +72,18 @@ def test_schema_is_migrated_by_a_separate_step(compose):
     assert backend["depends_on"]["db"]["condition"] == "service_healthy"
 
 
+def test_alert_delivery_reaches_the_container(compose):
+    """Не переданная в контейнер настройка — это молча не уходящие алерты (G-16)."""
+    env = _env(compose["services"]["backend"])
+
+    for key in ("SMTP_HOST", "ALERT_EMAIL_FROM", "ALERT_EMAIL_TO", "ALERT_WEBHOOK_URL"):
+        assert key in env, f"{key} не доезжает до приложения"
+    # Пустое значение в .env не должно ронять разбор числа: `:-` подставляет
+    # значение по умолчанию и для незаданной, и для пустой переменной.
+    assert env["SMTP_PORT"] == "${SMTP_PORT:-0}"
+    assert env["ALERT_REPEAT_HOURS"] == "${ALERT_REPEAT_HOURS:-24}"
+
+
 def test_container_health_is_liveness_not_readiness(compose):
     """Готовность краснеет от неудачной загрузки WB, а контейнер за это убивать
     нельзя: перезапуск приложения данных в кабинете не поправит (задача G-4)."""

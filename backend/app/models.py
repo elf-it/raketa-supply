@@ -443,6 +443,34 @@ class UnmatchedNmId(Base):
     store: Mapped[Store] = relationship()
 
 
+class AlertState(Base):
+    """О чём уже сообщили дежурному (задача G-16).
+
+    Таблица существует ради одного: не слать одно и то же каждый прогон.
+    Алерт, приходящий раз в пять минут, перестают читать через день, и тогда
+    доставка алертов становится дороже своего отсутствия — она создаёт
+    уверенность, что о сбое сообщат.
+
+    Строка — одно состояние одного повода (``sync:store01``). Пока состояние
+    не меняется, повторное сообщение уходит не чаще ``ALERT_REPEAT_HOURS``.
+    Когда повод исчез, уходит сообщение о восстановлении, а строка удаляется:
+    это память об открытом сбое, а не журнал — журналом служит лог.
+    """
+
+    __tablename__ = "alert_states"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: Повод: ``sync:<код кабинета>``. Приставка оставляет место другим поводам.
+    key: Mapped[str] = mapped_column(String(64), unique=True)
+    #: Состояние, о котором сообщили: ``failed`` или ``stale``.
+    state: Mapped[str] = mapped_column(String(16))
+    #: Когда это состояние началось — чтобы повтор говорил «не меняется с ...».
+    since: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    last_sent_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    #: Сколько раз об этом сообщили, включая повторы.
+    sends: Mapped[int] = mapped_column(Integer, default=1)
+
+
 class LoginAttempt(Base):
     """Неудачная попытка входа (задача G-12).
 

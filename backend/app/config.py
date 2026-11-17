@@ -76,6 +76,34 @@ class Settings(BaseSettings):
     #: как по этим числам соберут заказ.
     sync_stale_hours: int = 36
 
+    #: Доставка алертов (задача G-16). Пусто — система о сбоях не сообщает,
+    #: и о них узнаёт только внешний мониторинг по `/health/ready` и человек
+    #: по плашке в интерфейсе. Настроенным считается тот канал, у которого
+    #: заполнено всё нужное: полунастроенный канал приложение не пускает
+    #: к старту — молча не отправленный алерт хуже отсутствующего.
+    smtp_host: str = ""
+    #: 0 — порт по режиму: 465 для ssl, 587 для starttls, 25 без шифрования.
+    smtp_port: int = 0
+    smtp_user: str = ""
+    smtp_password: str = ""
+    #: ``starttls`` (обычный путь), ``ssl`` (SMTPS) или ``none``.
+    smtp_security: str = "starttls"
+    alert_email_from: str = ""
+    #: Кому слать, через запятую.
+    alert_email_to: str = ""
+    #: Входящий вебхук мессенджера: Slack, Mattermost, Telegram.
+    #: Сам адрес — секрет (в нём ключ входящего вебхука), поэтому в логах
+    #: и в выводе команд он маскируется.
+    alert_webhook_url: str = ""
+    #: Только для Telegram: номер чата уходит в теле запроса рядом с текстом.
+    alert_webhook_chat_id: str = ""
+    #: Через сколько часов напоминать о неисправленном сбое. 0 — не повторять:
+    #: сообщить один раз и молчать до изменения состояния.
+    alert_repeat_hours: int = 24
+    #: Приставка к теме письма и первой строке сообщения — чтобы правило
+    #: в почте или фильтр в мессенджере опознавали алерты этой системы.
+    alert_subject_prefix: str = "[Ракета]"
+
     def validate_runtime(self) -> None:
         """Проверки, после которых приложению можно давать работать.
 
@@ -92,10 +120,21 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "COOKIE_SECURE=false вне отладки: сессионная кука уйдёт по открытому HTTP."
             )
+        # Полунастроенная доставка алертов — отказ старта, а не молчание:
+        # «алерты настроены» и «алерты не уходят» вместе дают самый дорогой
+        # вид сбоя — тот, о котором никто не узнает. Ввоз здесь, а не наверху
+        # модуля: каналы доставки сами читают настройки.
+        from .services.notify import check_config
+
+        check_config(self)
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def alert_email_list(self) -> list[str]:
+        return [a.strip() for a in self.alert_email_to.split(",") if a.strip()]
 
     @property
     def wb_token_map(self) -> dict[str, str]:

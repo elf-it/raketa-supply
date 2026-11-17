@@ -22,7 +22,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -85,7 +85,11 @@ def _last_finished(session: Session, store_id: int) -> SyncRun | None:
 def sync_health(
     session: Session, now: datetime | None = None, stale_hours: int | None = None
 ) -> SyncHealth:
-    moment = now or datetime.now()
+    # UTC без зоны: отметки прогонов в базе стоят в UTC (``func.now()``
+    # и ``sync._now()``). С местным временем отставание считалось бы
+    # со сдвигом на часовой пояс машины — на машине в Москве кабинет
+    # становился бы «отставшим» на три часа раньше порога.
+    moment = now or datetime.now(UTC).replace(tzinfo=None)
     hours = stale_hours if stale_hours is not None else get_settings().sync_stale_hours
     health = SyncHealth(stale_after_hours=hours)
 

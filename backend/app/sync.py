@@ -28,8 +28,12 @@
 
 * **Код возврата говорит планировщику, что случилось.** ``0`` — загрузилось,
   ``1`` — хотя бы один кабинет упал, ``2`` — предыдущая загрузка ещё идёт.
-  Так cron или systemd присылают письмо ровно тогда, когда что-то не так:
-  доставки алертов у системы своей нет (задача G-16).
+  Так cron или systemd присылают письмо ровно тогда, когда что-то не так,
+  даже если доставка алертов (задача G-16) не настроена.
+
+* **Об упавшем кабинете команда сообщает сама** — настроенными каналами
+  доставки, в конце прогона. Отдельный прогон ``python -m app.alerts`` нужен
+  для другого случая: когда сама загрузка не запускалась.
 """
 
 from __future__ import annotations
@@ -154,7 +158,38 @@ def main(days: int = 90, lock_minutes: int = DEFAULT_LOCK_MINUTES) -> int:
         days=days,
         source=settings.wb_client,
     )
+    notify(settings)
     return FAILED if failed else OK
+
+
+def notify(settings) -> None:
+    """Сообщить о сбое сразу, не дожидаясь отдельного прогона алертов (G-16).
+
+    Доставка не влияет на код возврата загрузки: планировщику важно, загрузились
+    ли данные, а не дошло ли письмо. О недоставленном алерте говорит лог
+    и код возврата ``python -m app.alerts``.
+
+    Своя сессия: предыдущая закрыта вместе с загрузкой, а правила алертов
+    читают журнал прогонов — в том числе только что записанный.
+    """
+    try:
+        from .services.alerts import run_alerts
+        from .services.notify import make_channels
+
+        channels = make_channels(settings)
+        if not channels:
+            return
+        with SessionLocal() as session:
+            report = run_alerts(
+                session,
+                channels,
+                repeat_hours=settings.alert_repeat_hours,
+                prefix=settings.alert_subject_prefix,
+            )
+        for line in report.failures:
+            print(f"Алерт не доставлен — {line}", file=sys.stderr)
+    except Exception:  # noqa: BLE001 — доставка алертов не должна валить загрузку
+        event("алерты не отправлены", level=logging.ERROR, exception=True)
 
 
 if __name__ == "__main__":

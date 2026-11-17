@@ -76,6 +76,19 @@ services:
       # Пусто — кэш расчёта только в памяти процесса. Со службой `cache`:
       # redis://cache:6379/0 (см. профиль `cache` выше и docs/08-performance.md).
       CALC_CACHE_URL: ${CALC_CACHE_URL:-}
+      # Доставка алертов (задача G-16). Пусто — система о себе не сообщает.
+      # Полунастроенный блок почты — отказ старта, это намеренно: «алерты
+      # настроены» вместе с «алерты не уходят» — худший из исходов.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-0}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      ALERT_WEBHOOK_CHAT_ID: ${ALERT_WEBHOOK_CHAT_ID:-}
+      ALERT_REPEAT_HOURS: ${ALERT_REPEAT_HOURS:-24}
     depends_on:
       db:
         condition: service_healthy

@@ -175,6 +175,13 @@ def configure_logging(level: str = "INFO", fmt: str = "text") -> None:
     logging.getLogger("uvicorn.access").handlers = []
     logging.getLogger("uvicorn.access").propagate = False
 
+    # Журнал обращений HTTP-клиента — тоже. Он печатает строку запроса целиком,
+    # вместе с адресом, а в адресе входящего вебхука (задача G-16) лежит ключ:
+    # маскировать его у себя и тут же отдавать чужой библиотеке незачем.
+    # Свои обращения наружу пишутся своими событиями.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 
 def event(message: str, level: int = logging.INFO, **fields: object) -> None:
     """Событие с полями: вход, синхронизация, загрузка файла.
