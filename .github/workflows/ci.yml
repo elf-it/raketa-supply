@@ -1,3 +1,15 @@
+# Проверка на каждый push в main и на каждый pull request (задачи A-5, A-8).
+#
+# Версии действий — крупные теги (`@v7`), а не коммиты: это действия самого
+# GitHub, и крупный тег приносит их исправления сам. Для чужих действий так
+# делать не стоит — там тег может переехать на чужой код, — но чужих здесь нет.
+#
+# Версии Node и Python намеренно те же, что на машине разработчика и в образах
+# (`node:20-alpine`, `python:3.11-slim`): иначе CI проверял бы не то, что
+# собирается в прод. Node 20 уже без поддержки — переход на поддерживаемый
+# заведён задачей A-9: он меняет оба образа и машину разработчика, а не только
+# эту строку.
+
 name: CI
 
 on:
@@ -13,8 +25,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
@@ -31,8 +43,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
