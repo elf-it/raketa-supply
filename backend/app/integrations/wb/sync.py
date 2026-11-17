@@ -21,6 +21,7 @@ from ...models import Store, StoreProduct, SyncRun, SyncStatus, WeekFact
 from ...observability import event
 from ...services.matching import remember_unmatched
 from .client import WbClient
+from .limits import Traffic
 
 
 def _now() -> datetime:
@@ -39,10 +40,23 @@ class SyncReport:
     facts_upserted: int = 0
     unknown_nm_ids: list[str] | None = None
     error: str | None = None
+    #: Чего стоил прогон: запросы, повторы, страницы, повторные строки
+    #: (задача E-5). У фикстурного клиента ничего этого нет — ``None``.
+    traffic: Traffic | None = None
 
     @property
     def ok(self) -> bool:
         return self.error is None
+
+
+def _take_traffic(client: WbClient) -> Traffic | None:
+    """Счётчики клиента, если он их ведёт.
+
+    Через ``getattr``, а не через протокол: фикстурному клиенту и подставным
+    клиентам в тестах рассказывать не о чем.
+    """
+    take = getattr(client, "take_traffic", None)
+    return take() if callable(take) else None
 
 
 def _pair_index(session: Session, store_id: int) -> dict[str, int]:
@@ -124,10 +138,29 @@ def sync_store(
             report.facts_upserted += 1
 
         report.unknown_nm_ids = sorted(unknown)
+        report.traffic = _take_traffic(client)
         run.status = SyncStatus.SUCCESS
         run.facts_upserted = report.facts_upserted
+        notes = []
         if unknown:
-            run.message = f"не сопоставлено номенклатур: {len(unknown)}"
+            notes.append(f"не сопоставлено номенклатур: {len(unknown)}")
+        traffic = report.traffic
+        if traffic is not None and traffic.truncated:
+            # Записанные факты верны, но картина неполная — и выглядеть полной
+            # она не должна: по неполным продажам посчитается заниженный спрос
+            # и недозаказ. Поэтому прогон неудачный, хотя все запросы прошли:
+            # так об этом скажут и готовность, и алерт (задачи G-4, G-16).
+            run.status = SyncStatus.FAILED
+            report.error = (
+                f"данные загружены не полностью: предел страниц "
+                f"({traffic.pages}) достигнут раньше, чем кончились данные. "
+                f"Поднимите WB_MAX_PAGES или грузите меньшую глубину"
+            )
+            notes.append(report.error)
+        if traffic is not None and traffic.note():
+            notes.append(traffic.note())
+        if notes:
+            run.message = "; ".join(notes)
         run.finished_at = _now()
         session.commit()
         # Номера, которые некуда положить, запоминаются после записи фактов:
@@ -136,18 +169,28 @@ def sync_store(
         # упавший прогон не должен оставлять за собой список.
         remember_unmatched(session, store.id, unknown)
         event(
-            "кабинет загружен",
+            "кабинет загружен не полностью" if report.error else "кабинет загружен",
+            level=logging.WARNING if report.error else logging.INFO,
             store=store.code,
             facts=report.facts_upserted,
             unknown=len(unknown),
+            requests=traffic.requests if traffic else 0,
+            retries=traffic.retries if traffic else 0,
+            pages=traffic.pages if traffic else 0,
+            duplicates=traffic.duplicates if traffic else 0,
+            waited=f"{traffic.waited_seconds:.0f}" if traffic else "0",
         )
     except Exception as exc:  # noqa: BLE001 — любая ошибка должна попасть в журнал
         session.rollback()
         report.error = f"{type(exc).__name__}: {exc}"
+        # Счётчики забираются и у упавшего прогона: по ним видно, упал он сразу
+        # или после трёх повторов и трёх минут ожидания лимита.
+        report.traffic = _take_traffic(client)
         run = session.get(SyncRun, run.id)
         if run is not None:
             run.status = SyncStatus.FAILED
-            run.message = report.error
+            note = report.traffic.note() if report.traffic else ""
+            run.message = f"{report.error}; {note}" if note else report.error
             run.finished_at = _now()
             session.commit()
         # В журнал синхронизаций ошибка уже записана, но туда смотрят, когда

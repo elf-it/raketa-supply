@@ -47,7 +47,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from .db import SessionLocal, engine
-from .integrations.wb import make_client, sync_all
+from .integrations.wb import make_client, policy_from, sync_all
 from .migrations import assert_current
 from .models import SyncRun, SyncStatus
 from .observability import configure_logging, event
@@ -133,6 +133,7 @@ def main(days: int = 90, lock_minutes: int = DEFAULT_LOCK_MINUTES) -> int:
             settings.wb_token_map,
             settings.wb_api_base,
             Path(settings.wb_fixtures_dir) if settings.wb_fixtures_dir else None,
+            policy_from(settings),
         )
         reports = sync_all(session, client, days=days)
 
@@ -141,12 +142,16 @@ def main(days: int = 90, lock_minutes: int = DEFAULT_LOCK_MINUTES) -> int:
         return OK
 
     for report in reports:
+        note = report.traffic.note() if report.traffic else ""
         if report.ok:
             unknown = len(report.unknown_nm_ids or [])
             tail = f", не сопоставлено номенклатур: {unknown}" if unknown else ""
+            if note:
+                tail += f" ({note})"
             print(f"{report.store_code}: фактов {report.facts_upserted}{tail}")
         else:
-            print(f"{report.store_code}: ошибка — {report.error}", file=sys.stderr)
+            tail = f" ({note})" if note else ""
+            print(f"{report.store_code}: ошибка — {report.error}{tail}", file=sys.stderr)
 
     failed = [report.store_code for report in reports if not report.ok]
     event(

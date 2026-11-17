@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..db import get_session
-from ..integrations.wb import make_client, sync_all
+from ..integrations.wb import make_client, policy_from, sync_all
 from ..models import SyncRun, User
 from ..observability import event
 from ..schemas import SyncHealthOut, SyncOut
@@ -35,6 +35,7 @@ def post_sync_wb(
         settings.wb_token_map,
         settings.wb_api_base,
         Path(settings.wb_fixtures_dir) if settings.wb_fixtures_dir else None,
+        policy_from(settings),
     )
     reports = sync_all(session, client, days=days)
     failed = [report.store_code for report in reports if not report.ok]
