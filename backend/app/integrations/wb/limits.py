@@ -69,6 +69,12 @@ class RetryPolicy:
     #: на 1,6 млн строк. Предел нужен не ради скорости, а чтобы цикл с курсором
     #: не стал бесконечным, если сервер начнёт отдавать одно и то же.
     max_pages: int = 20
+    #: Пауза проверки статуса отчёта об остатках: по документации у этого шага
+    #: лимит свой — 1 запрос в 5 секунд, а не в минуту (задача E-8).
+    status_interval_seconds: float = 5.0
+    #: Сколько всего ждать готовности отчёта. Зависшее задание не должно
+    #: держать прогон и блокировку загрузки до бесконечности.
+    report_wait_seconds: float = 300.0
 
     def backoff(self, attempt: int) -> float:
         """Отступ для попытки: 2, 4, 8… не больше предела одной паузы."""
@@ -192,15 +198,20 @@ class Throttle:
         self._last: dict[tuple[str, str], float] = {}
         self._remaining: dict[tuple[str, str], int | None] = {}
 
-    def before(self, key: tuple[str, str]) -> float:
-        """Ждёт, если нужно. Возвращает, сколько проспали."""
+    def before(self, key: tuple[str, str], interval: float | None = None) -> float:
+        """Ждёт, если нужно. Возвращает, сколько проспали.
+
+        ``interval`` переопределяет паузу для методов с другим лимитом:
+        у проверки статуса отчёта об остатках это 5 секунд, а не минута.
+        """
+        wait = self.min_interval_seconds if interval is None else interval
         last = self._last.get(key)
-        if last is None or self.min_interval_seconds <= 0:
+        if last is None or wait <= 0:
             return 0.0
         remaining = self._remaining.get(key)
         if remaining is not None and remaining > 0:
             return 0.0
-        gap = self.min_interval_seconds - (self.clock() - last)
+        gap = wait - (self.clock() - last)
         if gap <= 0:
             return 0.0
         self.sleep(gap)

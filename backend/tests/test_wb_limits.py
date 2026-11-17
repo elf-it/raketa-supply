@@ -13,14 +13,22 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import httpx
 import pytest
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.integrations.wb import HttpWbClient, RetryPolicy, Traffic, WbApiError, sync_store
+from app.integrations.wb import (
+    HttpWbClient,
+    RetryPolicy,
+    Traffic,
+    WbApiError,
+    msk_today,
+    sync_store,
+)
+from app.integrations.wb.client import msk_date_of
 from app.integrations.wb.limits import (
     REMAINING_HEADER,
     RESET_HEADER,
@@ -52,7 +60,12 @@ class Clock:
         self.now += seconds
 
 
-def make_client(handler, policy: RetryPolicy = POLICY, clock: Clock | None = None):
+def make_client(
+    handler,
+    policy: RetryPolicy = POLICY,
+    clock: Clock | None = None,
+    stocks_source: str = "report",
+):
     clock = clock or Clock()
     client = HttpWbClient(
         tokens={"store01": "token-1"},
@@ -61,6 +74,7 @@ def make_client(handler, policy: RetryPolicy = POLICY, clock: Clock | None = Non
         sleep=clock.sleep,
         clock=clock,
         transport=httpx.MockTransport(handler),
+        stocks_source=stocks_source,
     )
     return client, clock
 
@@ -422,7 +436,9 @@ def test_the_minute_between_pages_is_waited_out():
     assert client.take_traffic().waited_seconds == 60
 
 
-def test_stocks_are_a_single_snapshot():
+def test_the_old_stocks_path_still_works_as_a_fallback():
+    """Прежний путь остаётся запасным: ни он, ни отчёт на боевом ключе
+    не проверены, а отчёту нужен токен другой категории."""
     asked: list[str] = []
 
     def handler(request):
@@ -432,11 +448,248 @@ def test_stocks_are_a_single_snapshot():
             json=[{"nmId": 101, "lastChangeDate": "2026-01-05T10:00:00", "quantity": 7}],
         )
 
-    client, _ = make_client(handler)
+    client, _ = make_client(handler, stocks_source="legacy")
     rows = client.fetch_stocks("store01", FROM)
 
     assert [row.quantity for row in rows] == [7.0]
-    assert asked == ["/api/v1/supplier/stocks"], "остатки читаются одним запросом"
+    assert asked == ["/api/v1/supplier/stocks"], "прежний путь — один запрос"
+
+
+# ---------------------------------------------------------------- заказы (E-8)
+
+
+def _order(srid: str, changed: str, day: str = "2026-01-05T10:00:00", cancel: bool = False):
+    return {
+        "srid": srid,
+        "lastChangeDate": changed,
+        "date": day,
+        "nmId": 101,
+        "isCancel": cancel,
+    }
+
+
+def test_orders_come_from_their_own_method():
+    """«Продажи» отдают продажи и возвраты; заказы — отдельный метод со своим
+    лимитом, а в расчёте спроса заказы участвуют."""
+    asked: list[str] = []
+
+    def handler(request):
+        asked.append(str(request.url.path))
+        return httpx.Response(200, json=[] if len(asked) > 1 else [_order("a", "2026-01-06")])
+
+    client, _ = make_client(handler, policy=RetryPolicy(attempts=2, min_interval_seconds=0))
+    rows = client.fetch_orders("store01", FROM)
+
+    assert [row.order_units for row in rows] == [1.0]
+    assert asked[0] == "/api/v1/supplier/orders"
+
+
+def test_a_cancelled_order_is_not_demand():
+    """По спросу считается закупка: отменённые заказы раздули бы её."""
+    pages = [
+        [_order("a", "2026-01-06"), _order("b", "2026-01-07", cancel=True)],
+        [],
+    ]
+    asked: list[str] = []
+
+    def handler(request):
+        asked.append(str(request.url))
+        return httpx.Response(200, json=pages[len(asked) - 1])
+
+    client, _ = make_client(handler, policy=RetryPolicy(attempts=2, min_interval_seconds=0))
+    rows = client.fetch_orders("store01", FROM)
+
+    assert len(rows) == 1
+    assert len(asked) == 2, "отменённая строка не должна останавливать обход страниц"
+
+
+def test_a_page_of_only_cancelled_orders_moves_the_cursor():
+    """Иначе страница из одних отменённых выглядела бы как «ничего нового»,
+    и обход встал бы, не дойдя до настоящих заказов."""
+    pages = [
+        [_order("a", "2026-01-06", cancel=True), _order("b", "2026-01-07", cancel=True)],
+        [_order("c", "2026-01-08")],
+        [],
+    ]
+    asked: list[str] = []
+
+    def handler(request):
+        asked.append(str(request.url))
+        return httpx.Response(200, json=pages[len(asked) - 1])
+
+    client, _ = make_client(handler, policy=RetryPolicy(attempts=2, min_interval_seconds=0))
+    rows = client.fetch_orders("store01", FROM)
+
+    assert len(rows) == 1
+    assert len(asked) == 3
+
+
+# ------------------------------------------------- отчёт об остатках (E-8)
+
+REMAINS = "/api/v1/warehouse_remains"
+TASK = "219eaecf-e532-4bd8-9f15-8036ec1b042d"
+
+#: Разбивка из документации: в списке не только склады, но и общий итог
+#: и товар в пути.
+WAREHOUSES = [
+    {"warehouseName": "В пути до получателей", "quantity": 14},
+    {"warehouseName": "В пути возвраты на склад WB", "quantity": 4},
+    {"warehouseName": "Всего находится на складах", "quantity": 267},
+    {"warehouseName": "Склад WB РФ", "quantity": 134},
+    {"warehouseName": "Склад WB СГТ РФ", "quantity": 10},
+    {"warehouseName": "Минск", "quantity": 123},
+]
+
+
+def _remains_handler(statuses: list[str], warehouses=None, download=None):
+    """Отвечает как отчёт WB: создать задание, статус, скачать."""
+    asked: list[str] = []
+    queue = list(statuses)
+
+    def handler(request):
+        path = str(request.url.path)
+        asked.append(path)
+        if path == REMAINS:
+            return httpx.Response(200, json={"data": {"taskId": TASK}})
+        if path.endswith("/status"):
+            status = queue.pop(0) if queue else "done"
+            return httpx.Response(200, json={"data": {"id": TASK, "status": status}})
+        if path.endswith("/download"):
+            if download is not None:
+                return download
+            rows = [
+                {
+                    "nmId": 101,
+                    "vendorCode": "art-1",
+                    "warehouses": WAREHOUSES if warehouses is None else warehouses,
+                }
+            ]
+            return httpx.Response(200, json=rows)
+        return httpx.Response(404, json={"title": "path not found"})
+
+    return handler, asked
+
+
+def test_stocks_come_from_the_report_in_three_steps():
+    handler, asked = _remains_handler(["new", "processing", "done"])
+    client, clock = make_client(handler, policy=RetryPolicy(attempts=2, min_interval_seconds=0))
+
+    rows = client.fetch_stocks("store01", FROM)
+
+    assert [path.split("/")[-1] for path in asked] == [
+        "warehouse_remains",
+        "status",
+        "status",
+        "status",
+        "download",
+    ]
+    assert len(rows) == 1
+    assert rows[0].nm_id == "101"
+    # Между проверками статуса — своя пауза: у этого шага лимит 1 запрос в 5 с.
+    assert clock.slept == [5, 5]
+
+
+def test_the_stock_is_the_total_and_not_the_sum_of_everything():
+    """В разбивке есть и общий итог, и товар в пути. Сумма всего подряд дала бы
+    двойной остаток плюс то, что до склада не доехало, — а остаток в расчёте
+    умножается на недели покрытия."""
+    handler, _ = _remains_handler(["done"])
+    client, _ = make_client(handler, policy=RetryPolicy(attempts=2, min_interval_seconds=0))
+
+    rows = client.fetch_stocks("store01", FROM)
+
+    assert rows[0].quantity == 267.0
+
+
+def test_without_the_total_the_warehouses_are_summed_without_transit():
+    handler, _ = _remains_handler(
+        ["done"],
+        warehouses=[
+            {"warehouseName": "В пути до получателей", "quantity": 14},
+            {"warehouseName": "Склад WB РФ", "quantity": 134},
+            {"warehouseName": "Минск", "quantity": 123},
+        ],
+    )
+    client, _ = make_client(handler, policy=RetryPolicy(attempts=2, min_interval_seconds=0))
+
+    rows = client.fetch_stocks("store01", FROM)
+
+    assert rows[0].quantity == 257.0, "134 + 123, и ни одной единицы «в пути»"
+
+
+def test_the_moscow_day_is_not_the_machine_day():
+    """Глубина загрузки и день среза считаются по Москве: ``dateFrom`` у WB
+    задаётся в московском времени. Проверяется на заданных моментах — разница
+    видна лишь в узком окне суток, и тест на «сейчас» молчал бы почти всегда."""
+    # Полночь уже прошла в Москве, но в Лондоне ещё вчера.
+    assert msk_date_of(datetime(2026, 11, 17, 22, 30, tzinfo=UTC)) == date(2026, 11, 18)
+    # А в Москве ещё вчера, хотя на машине в UTC+4 уже сегодня.
+    local = datetime(2026, 11, 18, 0, 30, tzinfo=timezone(timedelta(hours=4)))
+    assert msk_date_of(local) == date(2026, 11, 17)
+
+
+def test_the_snapshot_lands_on_the_moscow_day():
+    """Срез приезжает без даты. На машине в другом поясе местная дата может
+    отличаться от московской, а в ночь на понедельник — ещё и неделей."""
+    handler, _ = _remains_handler(["done"])
+    client, _ = make_client(handler, policy=RetryPolicy(attempts=2, min_interval_seconds=0))
+
+    rows = client.fetch_stocks("store01", FROM)
+
+    assert rows[0].day == msk_today()
+
+
+def test_no_data_in_the_report_is_not_an_error():
+    handler, _ = _remains_handler(["done"], download=httpx.Response(204))
+    client, _ = make_client(handler, policy=RetryPolicy(attempts=2, min_interval_seconds=0))
+
+    assert client.fetch_stocks("store01", FROM) == []
+
+
+def test_a_report_without_a_task_id_is_an_error():
+    def handler(request):
+        return httpx.Response(200, json={"data": {}})
+
+    client, _ = make_client(handler, policy=RetryPolicy(attempts=2, min_interval_seconds=0))
+
+    with pytest.raises(WbApiError, match="taskId"):
+        client.fetch_stocks("store01", FROM)
+
+
+def test_a_report_that_never_gets_ready_gives_up_with_its_last_status():
+    """Зависшее задание не должно держать прогон и блокировку загрузки."""
+    handler, asked = _remains_handler(["processing"] * 50)
+    client, _ = make_client(
+        handler,
+        policy=RetryPolicy(
+            attempts=2,
+            min_interval_seconds=0,
+            status_interval_seconds=5.0,
+            report_wait_seconds=20.0,
+        ),
+    )
+
+    with pytest.raises(WbApiError) as error:
+        client.fetch_stocks("store01", FROM)
+
+    assert "processing" in str(error.value)
+    assert asked.count(f"{REMAINS}/tasks/{TASK}/status") == 4, "20 секунд по 5 — четыре проверки"
+
+
+def test_the_report_needs_an_analytics_token_and_says_so_plainly():
+    """У отчёта категория токена другая («Аналитика»), и кабинету её могут
+    не выдать: тогда ответ 403 должен попасть в журнал как есть."""
+
+    def handler(request):
+        return httpx.Response(403, json={"title": "forbidden", "detail": "no analytics scope"})
+
+    client, _ = make_client(handler, policy=RetryPolicy(attempts=2, min_interval_seconds=0))
+
+    with pytest.raises(WbApiError) as error:
+        client.fetch_stocks("store01", FROM)
+
+    assert error.value.status == 403
+    assert "analytics" in str(error.value)
 
 
 # ------------------------------------------------------- это видно в журнале
@@ -452,6 +705,9 @@ class StubClient:
         return []
 
     def fetch_sales(self, store_code: str, date_from: date):
+        return []
+
+    def fetch_orders(self, store_code: str, date_from: date):
         return []
 
     def fetch_stocks(self, store_code: str, date_from: date):

@@ -134,6 +134,7 @@ def main(days: int = 90, lock_minutes: int = DEFAULT_LOCK_MINUTES) -> int:
             settings.wb_api_base,
             Path(settings.wb_fixtures_dir) if settings.wb_fixtures_dir else None,
             policy_from(settings),
+            settings.wb_stocks_source,
         )
         reports = sync_all(session, client, days=days)
 

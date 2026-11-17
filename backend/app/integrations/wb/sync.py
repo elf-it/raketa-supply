@@ -20,7 +20,7 @@ from ...calc import week_key
 from ...models import Store, StoreProduct, SyncRun, SyncStatus, WeekFact
 from ...observability import event
 from ...services.matching import remember_unmatched
-from .client import WbClient
+from .client import WbClient, msk_today
 from .limits import Traffic
 
 
@@ -82,6 +82,9 @@ def sync_store(
     try:
         pairs = _pair_index(session, store.id)
         sales = client.fetch_sales(store.code, date_from)
+        # Заказы — отдельный метод WB со своим лимитом (задача E-8): «Продажи»
+        # отдают продажи и возвраты, а в расчёте спроса участвуют и заказы.
+        orders = client.fetch_orders(store.code, date_from)
         stocks = client.fetch_stocks(store.code, date_from)
 
         weekly: dict[tuple[int, str], dict[str, float]] = defaultdict(
@@ -98,6 +101,13 @@ def sync_store(
             bucket["order_units"] += row.order_units
             bucket["buyout_units"] += row.buyout_units
             bucket["sales_units"] += row.sales_units
+
+        for row in orders:
+            pair_id = pairs.get(row.nm_id)
+            if pair_id is None:
+                unknown.add(row.nm_id)
+                continue
+            weekly[(pair_id, week_key(row.day))]["order_units"] += row.order_units
 
         # Остаток недели — последнее известное значение внутри недели.
         stock_end: dict[tuple[int, str], tuple[date, float]] = {}
@@ -152,9 +162,9 @@ def sync_store(
             # так об этом скажут и готовность, и алерт (задачи G-4, G-16).
             run.status = SyncStatus.FAILED
             report.error = (
-                f"данные загружены не полностью: предел страниц "
-                f"({traffic.pages}) достигнут раньше, чем кончились данные. "
-                f"Поднимите WB_MAX_PAGES или грузите меньшую глубину"
+                "данные загружены не полностью: предел страниц достигнут "
+                "раньше, чем кончились данные. Поднимите WB_MAX_PAGES "
+                "или грузите меньшую глубину"
             )
             notes.append(report.error)
         if traffic is not None and traffic.note():
@@ -205,7 +215,12 @@ def sync_all(
     days: int = 90,
     today: date | None = None,
 ) -> list[SyncReport]:
-    """Синхронизирует все активные кабинеты WB одновременно."""
-    date_from = (today or date.today()) - timedelta(days=days)
+    """Синхронизирует все активные кабинеты WB одновременно.
+
+    Глубина отсчитывается от **московской** даты: ``dateFrom`` у WB задаётся
+    в московском времени, и на машине в другом поясе местная дата может
+    отличаться от той, которую имеет в виду API (задача E-8).
+    """
+    date_from = (today or msk_today()) - timedelta(days=days)
     stores = session.scalars(select(Store).where(Store.is_active.is_(True))).all()
     return [sync_store(session, store, client, date_from) for store in stores]

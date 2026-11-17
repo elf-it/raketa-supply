@@ -4,9 +4,11 @@ from .client import (
     WbApiError,
     WbCard,
     WbClient,
+    WbOrderRow,
     WbSaleRow,
     WbStockRow,
     make_client,
+    msk_today,
     policy_from,
 )
 from .limits import RetryPolicy, Traffic
@@ -21,9 +23,11 @@ __all__ = [
     "WbApiError",
     "WbCard",
     "WbClient",
+    "WbOrderRow",
     "WbSaleRow",
     "WbStockRow",
     "make_client",
+    "msk_today",
     "policy_from",
     "sync_all",
     "sync_store",

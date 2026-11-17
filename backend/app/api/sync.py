@@ -36,6 +36,7 @@ def post_sync_wb(
         settings.wb_api_base,
         Path(settings.wb_fixtures_dir) if settings.wb_fixtures_dir else None,
         policy_from(settings),
+        settings.wb_stocks_source,
     )
     reports = sync_all(session, client, days=days)
     failed = [report.store_code for report in reports if not report.ok]

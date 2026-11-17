@@ -72,6 +72,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       WB_CLIENT: ${WB_CLIENT:-http}
       WB_TOKENS: ${WB_TOKENS:-}
+      # Остатки: отчётом (как в документации) или прежним путём — задача E-8.
+      WB_STOCKS_SOURCE: ${WB_STOCKS_SOURCE:-report}
       SYNC_STALE_HOURS: ${SYNC_STALE_HOURS:-36}
       # Пусто — кэш расчёта только в памяти процесса. Со службой `cache`:
       # redis://cache:6379/0 (см. профиль `cache` выше и docs/08-performance.md).
