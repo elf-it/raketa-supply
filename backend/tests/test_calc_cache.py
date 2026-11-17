@@ -84,6 +84,42 @@ def test_limit_pushes_out_the_longest_unused():
     assert cache.stats()["evictions"] == 1
 
 
+def test_a_cache_smaller_than_the_catalogue_says_so_once(caplog):
+    """Найдено замером (G-6): на 10 800 парах с пределом по умолчанию кэш
+    вытесняет то, что сам же положил, и экран отвечает 4,3 с вместо 1,1 с —
+    медленнее, чем вовсе без кэша. Снаружи это выглядит просто как «тормозит»,
+    поэтому система обязана сказать об этом сама.
+    """
+    import logging
+
+    cache = SeriesCache(max_entries=2)
+    with caplog.at_level(logging.WARNING, logger="raketa"):
+        # Шесть записей при пределе в две: вытеснено больше, чем кэш вмещает.
+        for pair_id in range(1, 7):
+            cache.put(pair_id, "sig", 1, 1, _result())
+
+    warnings = [r for r in caplog.records if "не вмещает" in r.getMessage()]
+    assert len(warnings) == 1, "об одной и той же настройке не кричат каждый запрос"
+    assert "CALC_CACHE_ENTRIES" in str(getattr(warnings[0], "fields", ""))
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="raketa"):
+        for pair_id in range(7, 12):
+            cache.put(pair_id, "sig", 1, 1, _result())
+    assert not [r for r in caplog.records if "не вмещает" in r.getMessage()]
+
+
+def test_a_cache_that_fits_stays_silent(caplog):
+    import logging
+
+    cache = SeriesCache(max_entries=10)
+    with caplog.at_level(logging.WARNING, logger="raketa"):
+        for pair_id in range(1, 11):
+            cache.put(pair_id, "sig", 1, 1, _result())
+
+    assert not [r for r in caplog.records if "не вмещает" in r.getMessage()]
+
+
 def test_zero_limit_turns_the_cache_off():
     cache = SeriesCache(max_entries=0)
     cache.put(1, "sig", 1, 1, _result())

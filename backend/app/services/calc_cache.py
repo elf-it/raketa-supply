@@ -44,6 +44,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import threading
 from collections import OrderedDict
 from collections.abc import Sequence
@@ -51,6 +52,7 @@ from functools import lru_cache
 
 from ..calc import CalcSettings, SeriesResult
 from ..config import get_settings
+from ..observability import event
 from .series_store import SeriesStore, make_store
 
 #: Ключ записи: пара и подпись оси недель вместе с настройками расчёта.
@@ -82,6 +84,26 @@ def series_signature(weeks: Sequence[str], last_closed: str | None, settings: Ca
     return hashlib.blake2s(raw.encode("utf-8"), digest_size=16).hexdigest()
 
 
+def _warn_cache_is_too_small(max_entries: int, evictions: int) -> None:
+    """Говорит, что кэш расчёта не вмещает каталог (найдено замером, G-6).
+
+    На 10 800 парах с пределом по умолчанию (10 000 записей) кэш вытесняет
+    то, что сам же положил: экран отвечает 4,3 с вместо 1,1 с — медленнее,
+    чем вовсе без кэша, потому что к расчёту добавляется запись. Снаружи
+    это выглядит просто как «система тормозит», и найти причину нечем.
+    """
+    event(
+        "кэш расчёта не вмещает каталог",
+        level=logging.WARNING,
+        max_entries=max_entries,
+        evictions=evictions,
+        advice=(
+            "поднимите CALC_CACHE_ENTRIES: нужно не меньше, "
+            "чем позиций × число экранов (матрица и закупка — два)"
+        ),
+    )
+
+
 class SeriesCache:
     """Записи «пара + подпись → недельный ряд» с ограничением по числу.
 
@@ -106,6 +128,9 @@ class SeriesCache:
         self.shared_hits = 0
         #: Сколько раз общее хранилище не сработало. Ноль — оно в порядке.
         self.shared_failures = 0
+        #: О переполнении говорится один раз на процесс: это настройка,
+        #: а не событие, и повторять её каждый запрос — значит засорить лог.
+        self._warned_full = False
 
     @property
     def enabled(self) -> bool:
@@ -140,6 +165,15 @@ class SeriesCache:
             while len(self._entries) > self.max_entries:
                 self._entries.popitem(last=False)
                 self.evictions += 1
+            warn = self.evictions > self.max_entries and not self._warned_full
+            if warn:
+                self._warned_full = True
+        if warn:
+            # Вытеснено больше, чем кэш вмещает: значит, запрос выбрасывает
+            # то, что сам же положил, и попаданий не будет вовсе. Это не просто
+            # бесполезный кэш — за запись платят каждым запросом. Молчать об этом
+            # нельзя: снаружи это выглядит как «система почему-то медленная».
+            _warn_cache_is_too_small(self.max_entries, self.evictions)
 
     # ----------------------------------------------------------- работа пачкой
 
