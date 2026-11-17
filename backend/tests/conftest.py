@@ -16,6 +16,10 @@ from pathlib import Path
 TMP = Path(tempfile.mkdtemp(prefix="raketa-tests-"))
 os.environ["DATABASE_URL"] = f"sqlite:///{(TMP / 'test.db').as_posix()}"
 os.environ["WB_CLIENT"] = "fixtures"
+# Загрузка через API должна читать те же выгрузки, что сгенерировал сид:
+# в репозитории их нет (они в .gitignore), и на чистой машине — в CI —
+# фикстурный клиент иначе не находит ничего и «загружает» ноль фактов.
+os.environ["WB_FIXTURES_DIR"] = str(Path(TMP) / "fixtures")
 os.environ["SECRET_KEY"] = "tests-only-secret-key"
 
 import pytest  # noqa: E402

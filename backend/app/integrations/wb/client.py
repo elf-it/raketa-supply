@@ -177,7 +177,15 @@ class HttpWbClient:
         ]
 
 
-def make_client(kind: str, tokens: dict[str, str], base_url: str) -> WbClient:
+def make_client(
+    kind: str, tokens: dict[str, str], base_url: str, fixtures_dir: Path | None = None
+) -> WbClient:
+    """Клиент по настройке. ``fixtures_dir`` — где лежат выгрузки для ``fixtures``.
+
+    Пусто — рядом с кодом. Отдельная папка нужна там, где сгенерированные
+    выгрузки не должны лежать в репозитории: у сида есть такой же ключ,
+    и без этой настройки загрузка искала бы их не там, где он их положил.
+    """
     if kind == "http":
         return HttpWbClient(tokens=tokens, base_url=base_url)
-    return FixtureWbClient()
+    return FixtureWbClient(fixtures_dir)

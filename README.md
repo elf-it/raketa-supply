@@ -227,6 +227,7 @@ cd frontend && npm run build
 | `DATABASE_URL` | `sqlite:///./raketa.db` | В проде — `postgresql+psycopg://user:pass@host:5432/raketa` |
 | `WB_CLIENT` | `fixtures` | `fixtures` — локальные файлы, `http` — реальный API WB |
 | `WB_TOKENS` | пусто | `store01=<токен>,store02=<токен>` — ключи кабинетов, в базе не хранятся |
+| `WB_FIXTURES_DIR` | пусто | Где лежат выгрузки для `WB_CLIENT=fixtures`; пусто — рядом с кодом |
 | `CORS_ORIGINS` | `http://localhost:5173,...` | Разрешённые источники |
 | `SECRET_KEY` | небезопасный ключ для отладки | Подпись сессионных токенов; вне отладки обязателен |
 | `SESSION_TTL_HOURS` | 12 | Срок жизни сессии |

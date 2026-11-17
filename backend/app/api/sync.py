@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
@@ -29,7 +30,12 @@ def post_sync_wb(
     Источник задаётся переменной ``WB_CLIENT``: ``fixtures`` или ``http``.
     """
     settings = get_settings()
-    client = make_client(settings.wb_client, settings.wb_token_map, settings.wb_api_base)
+    client = make_client(
+        settings.wb_client,
+        settings.wb_token_map,
+        settings.wb_api_base,
+        Path(settings.wb_fixtures_dir) if settings.wb_fixtures_dir else None,
+    )
     reports = sync_all(session, client, days=days)
     failed = [report.store_code for report in reports if not report.ok]
     event(

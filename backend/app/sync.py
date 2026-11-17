@@ -38,6 +38,7 @@ import argparse
 import logging
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import select
 
@@ -123,7 +124,12 @@ def main(days: int = 90, lock_minutes: int = DEFAULT_LOCK_MINUTES) -> int:
         if closed:
             print(f"Закрыто брошенных прогонов: {closed}.")
 
-        client = make_client(settings.wb_client, settings.wb_token_map, settings.wb_api_base)
+        client = make_client(
+            settings.wb_client,
+            settings.wb_token_map,
+            settings.wb_api_base,
+            Path(settings.wb_fixtures_dir) if settings.wb_fixtures_dir else None,
+        )
         reports = sync_all(session, client, days=days)
 
     if not reports:
