@@ -297,6 +297,10 @@ export interface PurchasePlan {
   total_cost: number;
   total_volume_m3: number;
   overdue_count: number;
+  /** Строк в выборке целиком: `rows` может быть окном из них (G-17). */
+  row_count: number;
+  /** С какой строки выборки начинается `rows`. */
+  offset: number;
 }
 
 /** Разбор загруженного файла: что он изменит и чего из него не взяли. */
@@ -369,6 +373,12 @@ export interface Reconcile {
 }
 
 export type OrderStatus = 'draft' | 'placed' | 'received' | 'cancelled';
+
+/** Окно строк закупки (G-17): итоги считаются по всей выборке, а не по окну. */
+export interface PurchaseWindow {
+  offset?: number;
+  limit?: number;
+}
 
 export interface OrderLine {
   id: number;

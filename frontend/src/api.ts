@@ -19,6 +19,7 @@ import type {
   PriceCard,
   Product,
   PurchasePlan,
+  PurchaseWindow,
   Reconcile,
   Role,
   SeasonalityRow,
@@ -313,8 +314,18 @@ export const api = {
   matrixRow: (filters: MatrixFilters, pairId: number) =>
     request<Matrix>(`/matrix/row?pair_id=${pairId}&${query(filters)}`),
 
-  purchase: (filters: Omit<MatrixFilters, 'level'>, onlyNeeded: boolean) =>
-    request<PurchasePlan>(`/purchase?only_needed=${onlyNeeded}&${query(filters)}`),
+  // Окно строк то же, что у матрицы (G-17): итоги сервер считает по всей
+  // выборке, поэтому подгрузка не меняет ни сумму, ни число просроченных.
+  purchase: (
+    filters: Omit<MatrixFilters, 'level'>,
+    onlyNeeded: boolean,
+    window?: PurchaseWindow,
+  ) => {
+    const params = new URLSearchParams({ only_needed: String(onlyNeeded) });
+    if (window?.offset) params.set('offset', String(window.offset));
+    if (window?.limit) params.set('limit', String(window.limit));
+    return request<PurchasePlan>(`/purchase?${params}&${query(filters)}`);
+  },
 
   // Выгрузки — обычные ссылки, а не fetch: файл сохраняет браузер, с именем,
   // которое прислал сервер. Фильтры те же, что у запроса данных, иначе в файле

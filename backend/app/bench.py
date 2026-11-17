@@ -110,9 +110,9 @@ def screen_steps(limit: int) -> list[Step]:
             f"{API}/matrix",
             {"level": "sku", "limit": limit, "status": "SHORT"},
         ),
-        # У закупки своего окна строк нет: она отдаёт всю выборку целиком,
-        # и на больших каталогах это самый тяжёлый экран.
-        Step("закупка", f"{API}/purchase", {"only_needed": "false"}),
+        # Закупка берёт такое же окно строк, как матрица (задача G-17):
+        # сценарий должен повторять экран, а не ручку без окна.
+        Step("закупка", f"{API}/purchase", {"only_needed": "false", "limit": limit}),
         Step("плашка свежести данных", f"{API}/sync/status"),
     ]
 

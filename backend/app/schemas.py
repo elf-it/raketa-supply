@@ -570,6 +570,11 @@ class PurchasePlanOut(BaseModel_):
     total_cost: float
     total_volume_m3: float
     overdue_count: int
+    #: Сколько строк в выборке целиком: ``rows`` может быть окном из них
+    #: (задача G-17). Итоги выше — по всей выборке, а не по окну.
+    row_count: int = 0
+    #: С какой строки выборки начинается ``rows``.
+    offset: int = 0
 
 
 class OrderLineIn(BaseModel_):

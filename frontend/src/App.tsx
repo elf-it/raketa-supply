@@ -215,7 +215,11 @@ export default function App() {
         loadedRows.current = fresh.rows.length;
         setMatrix(fresh);
       } else {
-        setPurchase(await api.purchase(filters, onlyNeeded));
+        // Окно строк то же, что у матрицы (G-17): на тысячах позиций ответ
+        // целиком — это мегабайты, а итоги сервер считает по всей выборке.
+        const fresh = await api.purchase(filters, onlyNeeded, { limit: PAGE_ROWS });
+        if (seq !== requestSeq.current) return;
+        setPurchase(fresh);
       }
       setError(null);
     } catch (err) {
@@ -322,6 +326,36 @@ export default function App() {
       setLoadingMore(false);
     }
   }, [filters, matrix]);
+
+  /**
+   * Следующее окно строк закупки (задача G-17).
+   *
+   * Итоги приходят по всей выборке, поэтому берутся из свежего ответа как есть:
+   * подгрузка не должна менять ни сумму, ни число просроченных.
+   */
+  const loadMorePurchase = useCallback(async () => {
+    if (moreBusy.current || !purchase) return;
+    const offset = purchase.rows.length;
+    if (offset >= purchase.row_count) return;
+    moreBusy.current = true;
+    setLoadingMore(true);
+    const seq = requestSeq.current;
+    try {
+      const next = await api.purchase(filters, onlyNeeded, { offset, limit: PAGE_ROWS });
+      if (seq !== requestSeq.current) return;
+      setPurchase((prev) => {
+        // Окно встаёт только на свой стык: иначе выборка под ним изменилась.
+        if (!prev || next.offset !== prev.rows.length) return prev;
+        return { ...next, rows: [...prev.rows, ...next.rows], offset: 0 };
+      });
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      moreBusy.current = false;
+      setLoadingMore(false);
+    }
+  }, [filters, onlyNeeded, purchase]);
 
   useEffect(() => {
     void reload();
@@ -761,6 +795,8 @@ export default function App() {
           drafts={drafts}
           onAddToDraft={(orderId, row) => void addToDraft(orderId, row)}
           orderBusy={orderBusy}
+          onNeedMore={() => void loadMorePurchase()}
+          loadingMore={loadingMore}
         />
       )}
 

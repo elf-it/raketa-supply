@@ -55,9 +55,19 @@ def get_purchase_plan(
     product_id: int | None = Query(None),
     search: str | None = Query(None),
     only_needed: bool = Query(False, description="Только позиции, требующие заказа"),
+    offset: int = Query(0, ge=0, description="С какой строки выборки отдавать"),
+    limit: int | None = Query(None, ge=1, description="Сколько строк отдать; пусто — все"),
     session: Session = Depends(get_session),
 ) -> PurchasePlanOut:
-    """Дата и объём заказа по исходному спросу с учётом lead time, MOQ, PCB, safety."""
+    """Дата и объём заказа по исходному спросу с учётом lead time, MOQ, PCB, safety.
+
+    ``offset`` и ``limit`` режут только строки: итоги — штуки, деньги, объём
+    и число просроченных — считаются по всей выборке (задача G-17). Иначе
+    сумма под таблицей расходилась бы с тем, что над ней, а заказ собирают
+    именно по этой сумме. Сколько строк в выборке всего — в ``row_count``.
+
+    Выгрузка в файл окна не знает намеренно: в XLSX уходит вся выборка.
+    """
     rows = build_purchase_plan(
         session,
         MatrixFilters(
@@ -69,13 +79,22 @@ def get_purchase_plan(
     )
     if only_needed:
         rows = [r for r in rows if r.suggestion.needed]
-    out = [_to_out(r) for r in rows]
+
+    # Итоги считаются до окна: они про выборку, а не про страницу.
+    total_qty = sum(r.suggestion.qty for r in rows)
+    total_cost = sum(r.suggestion.cost for r in rows)
+    total_volume = sum(r.suggestion.volume_m3 for r in rows)
+    overdue = sum(1 for r in rows if r.suggestion.is_overdue and r.suggestion.needed)
+
+    window = rows[offset:] if limit is None else rows[offset : offset + limit]
     return PurchasePlanOut(
-        rows=out,
-        total_qty=sum(r.qty for r in out),
-        total_cost=sum(r.cost for r in out),
-        total_volume_m3=sum(r.volume_m3 for r in out),
-        overdue_count=sum(1 for r in out if r.is_overdue and r.needed),
+        rows=[_to_out(r) for r in window],
+        total_qty=total_qty,
+        total_cost=total_cost,
+        total_volume_m3=total_volume,
+        overdue_count=overdue,
+        row_count=len(rows),
+        offset=offset,
     )
 
 

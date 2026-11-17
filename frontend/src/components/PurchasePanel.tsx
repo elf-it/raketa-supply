@@ -80,6 +80,9 @@ function urgency(row: PurchaseRow): { label: string; tone: string } | null {
   return null;
 }
 
+/** Сколько строк просить за раз: столько же, сколько у матрицы (G-10, G-17). */
+export const PAGE_STEP = 200;
+
 interface Props {
   plan: PurchasePlan;
   /** Готовая ссылка на выгрузку: фильтры и отбор знает приложение, не панель. */
@@ -94,6 +97,10 @@ interface Props {
   onAddToDraft: (orderId: number, row: PurchaseRow) => void;
   /** Запрос по заказу в полёте: кнопки заказа на время ответа заперты. */
   orderBusy: boolean;
+  /** Подгрузить следующее окно строк (задача G-17). */
+  onNeedMore: () => void;
+  /** Окно в полёте: кнопка «показать ещё» на время ответа заперта. */
+  loadingMore: boolean;
 }
 
 export function PurchasePanel({
@@ -106,8 +113,18 @@ export function PurchasePanel({
   drafts,
   onAddToDraft,
   orderBusy,
+  onNeedMore,
+  loadingMore,
 }: Props) {
   const [grouped, setGrouped] = useState(true);
+  /**
+   * Загружена ли выборка целиком (задача G-17).
+   *
+   * Пока нет — группа поставщика на экране неполная, и кнопка «сформировать
+   * заказ» по ней собрала бы черновик из части позиций, молча пропустив
+   * остальные. Молчать тут нельзя: заказ уходит поставщику.
+   */
+  const whole = plan.rows.length >= plan.row_count;
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -257,7 +274,11 @@ export function PurchasePanel({
                       {group.supplier}
                     </button>
                     <span className="group-meta">
-                      {group.rows.length} поз. · заказ до {formatDate(group.firstOrderDate)}
+                      {/* Пока выборка загружена не целиком, в группе видна
+                          только её загруженная часть — и число должно
+                          говорить об этом, а не выдавать часть за всё. */}
+                      {group.rows.length} поз.{whole ? '' : ' загружено'} · заказ до{' '}
+                      {formatDate(group.firstOrderDate)}
                       {group.overdue > 0 && (
                         <span className="badge status short">просрочено {group.overdue}</span>
                       )}
@@ -265,7 +286,13 @@ export function PurchasePanel({
                     {canEdit && group.rows.some((row) => row.needed) && (
                       <button
                         className="small group-order"
-                        disabled={orderBusy}
+                        disabled={orderBusy || !whole}
+                        title={
+                          whole
+                            ? undefined
+                            : 'Выборка загружена не целиком: в группе могут быть ещё позиции. ' +
+                              'Нажмите «Показать ещё», чтобы заказ собрался по всем'
+                        }
                         onClick={() => onCreateOrder(group.rows.filter((row) => row.needed))}
                       >
                         Сформировать заказ
@@ -304,6 +331,21 @@ export function PurchasePanel({
           )}
         </table>
       </div>
+
+      {plan.row_count > plan.rows.length && (
+        <div className="purchase-more">
+          <button className="ghost small" disabled={loadingMore} onClick={onNeedMore}>
+            {loadingMore
+              ? 'Подгружаю…'
+              : `Показать ещё ${qty(Math.min(PAGE_STEP, plan.row_count - plan.rows.length))}`}
+          </button>
+          <span className="muted small">
+            Показано {qty(plan.rows.length)} из {qty(plan.row_count)} позиций. Итоги над
+            таблицей — по всей выборке, а не по показанному.
+            {canEdit && ' Заказ по группе соберётся, когда выборка загрузится целиком.'}
+          </span>
+        </div>
+      )}
     </section>
   );
 }
