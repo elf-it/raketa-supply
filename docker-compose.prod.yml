@@ -26,6 +26,19 @@ services:
       retries: 10
     # Порт наружу не выставлен: база нужна только службам этого compose.
 
+  # Общий кэш расчёта (задача G-14). Поднимается только с профилем `cache`:
+  #   docker compose -f docker-compose.prod.yml --profile cache up -d
+  # и только вместе с CALC_CACHE_URL=redis://cache:6379/0 в .env. По замерам
+  # на 1080 парах он себя не окупает (docs/08-performance.md) — включать стоит,
+  # когда воркеров много или каталог заметно больше.
+  cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    profiles: ['cache']
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    # Ни тома, ни сохранения: это кэш. Потеря содержимого стоит одного
+    # пересчёта, а не данных.
+
   # Миграции — отдельный шаг, а не часть старта приложения: несколько воркеров
   # начали бы мигрировать одновременно. Служба отрабатывает и завершается,
   # бэкенд ждёт именно её успешного завершения.
@@ -60,6 +73,9 @@ services:
       WB_CLIENT: ${WB_CLIENT:-http}
       WB_TOKENS: ${WB_TOKENS:-}
       SYNC_STALE_HOURS: ${SYNC_STALE_HOURS:-36}
+      # Пусто — кэш расчёта только в памяти процесса. Со службой `cache`:
+      # redis://cache:6379/0 (см. профиль `cache` выше и docs/08-performance.md).
+      CALC_CACHE_URL: ${CALC_CACHE_URL:-}
     depends_on:
       db:
         condition: service_healthy

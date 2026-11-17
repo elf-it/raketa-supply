@@ -411,21 +411,19 @@ def compute_results(
     cache = get_series_cache()
     signature = series_signature(weeks, last_closed, settings)
 
-    results: dict[int, SeriesResult] = {}
-    misses: list[Pair] = []
-    for pair in pairs:
-        ready = cache.get(pair.id, signature, pair.calc_revision, epoch)
-        if ready is None:
-            misses.append(pair)
-        else:
-            results[pair.id] = ready
+    # Пачкой, а не по одной: общий кэш (G-14) ходит по сети, и тысяча отдельных
+    # походов стоила бы дороже, чем посчитать эти ряды заново.
+    results = cache.get_many([(pair.id, signature, pair.calc_revision, epoch) for pair in pairs])
+    misses = [pair for pair in pairs if pair.id not in results]
 
     if misses:
         inputs = build_series_inputs(session, misses, weeks, last_closed)
+        computed = []
         for pair in misses:
             result = compute_series(inputs[pair.id], settings)
-            cache.put(pair.id, signature, pair.calc_revision, epoch, result)
+            computed.append((pair.id, signature, pair.calc_revision, epoch, result))
             results[pair.id] = result
+        cache.put_many(computed)
     return results
 
 
