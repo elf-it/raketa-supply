@@ -24,7 +24,7 @@ import httpx
 import pytest
 from sqlalchemy import delete, select
 
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.db import SessionLocal
 from app.models import AlertState, Store, SyncRun, SyncStatus
 from app.services import notify
@@ -589,6 +589,106 @@ def test_the_test_flag_fails_without_channels(client):
     from app import alerts as cli
 
     assert cli.main(test=True) == cli.FAILED
+
+
+# --------------------------------------------------------------- пульс наружу
+
+PULSE = "https://hc.example.com/ping/7f3a9c21-secret"
+
+
+def test_a_healthy_run_pulses_outside(client, monkeypatch, capsys):
+    """О собственной смерти сообщить нельзя — но можно делать обратное,
+    пока жив, и дать сторожу снаружи заметить пропажу сигнала."""
+    from app import alerts as cli
+
+    pinged: list[str] = []
+    monkeypatch.setattr(cli, "make_channels", lambda settings: [])
+    monkeypatch.setattr(cli, "send_heartbeat", lambda url, **kw: pinged.append(url))
+    monkeypatch.setenv("HEARTBEAT_URL", PULSE)
+    get_settings.cache_clear()
+    try:
+        assert cli.main() == cli.OK
+    finally:
+        get_settings.cache_clear()
+
+    assert pinged == [PULSE]
+    out = capsys.readouterr().out
+    assert "Пульс отправлен" in out
+    assert "secret" not in out, "в адресе пульса лежит ключ проверки"
+
+
+def test_a_failed_run_stays_silent(broken_store, monkeypatch, capsys):
+    """Молчание — и есть сигнал: сторож поднимет тревогу сам."""
+    from app import alerts as cli
+
+    pinged: list[str] = []
+    monkeypatch.setattr(cli, "make_channels", lambda settings: [BrokenChannel()])
+    monkeypatch.setattr(cli, "send_heartbeat", lambda url, **kw: pinged.append(url))
+    monkeypatch.setenv("HEARTBEAT_URL", PULSE)
+    get_settings.cache_clear()
+    try:
+        assert cli.main() == cli.FAILED
+    finally:
+        get_settings.cache_clear()
+
+    assert pinged == [], "недоставленный алерт не должен выглядеть благополучием"
+    assert "Пульс не отправлен" in capsys.readouterr().out
+
+
+def test_a_pulse_that_did_not_go_does_not_fail_the_run(client, monkeypatch, capsys):
+    """Загрузка и алерты от пульса не зависят, а о пропаже узнает сторож."""
+    from app import alerts as cli
+
+    def fail(url, **kw):
+        raise DeliveryError("ответ 500")
+
+    monkeypatch.setattr(cli, "make_channels", lambda settings: [])
+    monkeypatch.setattr(cli, "send_heartbeat", fail)
+    monkeypatch.setenv("HEARTBEAT_URL", PULSE)
+    get_settings.cache_clear()
+    try:
+        assert cli.main() == cli.OK
+    finally:
+        get_settings.cache_clear()
+
+    assert "Пульс не ушёл" in capsys.readouterr().err
+
+
+def test_the_test_flag_checks_the_pulse_too(client, monkeypatch, capsys):
+    """Сторож, которого ни разу не дёргали, — такое же предположение,
+    как непроверенный канал."""
+    from app import alerts as cli
+
+    def fail(url, **kw):
+        raise DeliveryError("ответ 404")
+
+    monkeypatch.setattr(cli, "make_channels", lambda settings: [])
+    monkeypatch.setattr(cli, "send_heartbeat", fail)
+    monkeypatch.setenv("HEARTBEAT_URL", PULSE)
+    get_settings.cache_clear()
+    try:
+        assert cli.main(test=True) == cli.FAILED, "в проверке связи отказ пульса — отказ"
+    finally:
+        get_settings.cache_clear()
+
+    assert "Пульс не ушёл" in capsys.readouterr().err
+
+
+def test_without_a_pulse_nothing_changes(client, monkeypatch, capsys):
+    from app import alerts as cli
+
+    pinged: list[str] = []
+    monkeypatch.setattr(cli, "make_channels", lambda settings: [])
+    monkeypatch.setattr(cli, "send_heartbeat", lambda url, **kw: pinged.append(url))
+
+    assert cli.main() == cli.OK
+    assert pinged == []
+    assert "Пульс" not in capsys.readouterr().out
+
+
+def test_a_pulse_address_must_be_an_address():
+    with pytest.raises(AlertConfigError, match="HEARTBEAT_URL"):
+        check_config(Settings(heartbeat_url="hc.example.com/ping/x"))
 
 
 def test_broken_settings_stop_the_command(monkeypatch, capsys):

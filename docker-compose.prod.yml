@@ -91,6 +91,9 @@ services:
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       ALERT_WEBHOOK_CHAT_ID: ${ALERT_WEBHOOK_CHAT_ID:-}
       ALERT_REPEAT_HOURS: ${ALERT_REPEAT_HOURS:-24}
+      # Пульс наружу (задача G-18): сторож ждёт сигнала и шумит, когда тот
+      # пропал. О собственной смерти система сообщить не может.
+      HEARTBEAT_URL: ${HEARTBEAT_URL:-}
     depends_on:
       db:
         condition: service_healthy

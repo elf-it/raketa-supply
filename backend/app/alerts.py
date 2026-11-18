@@ -20,7 +20,14 @@
 * **``--test`` отправляет, ничего не проверяя.** Канал, в который ни разу
   не отправляли, — это предположение о канале: пароль приложения, забытый
   порт, вебхук, отозванный полгода назад. Проверка состояние не трогает:
-  ни отметок, ни повторов.
+  ни отметок, ни повторов. Пульс наружу проверяется вместе с каналами.
+
+* **Пульс наружу (задача G-18).** После удачного прогона команда дёргает
+  ``HEARTBEAT_URL`` — адрес сторожа снаружи (healthchecks.io, push-проверка
+  Uptime Kuma, Dead Man's Snitch). Это единственный способ узнать, что система
+  мертва: выключенная машина не отправляет алертов, и о собственной смерти
+  сообщить нельзя — зато можно делать обратное, пока жив. Если прогон
+  неудачный, пульса нет намеренно: молчание и есть сигнал.
 
 * **Код возврата.** ``0`` — сообщать нечего или всё отправлено, ``1`` — было
   что сообщить, и ни один канал не принял. Так cron пришлёт письмо ровно
@@ -39,7 +46,14 @@ from .db import SessionLocal, engine
 from .migrations import assert_current
 from .observability import configure_logging, event
 from .services.alerts import RECOVERED, Report, deliver, run_alerts
-from .services.notify import AlertConfigError, Note, make_channels
+from .services.notify import (
+    AlertConfigError,
+    DeliveryError,
+    Note,
+    make_channels,
+    mask_url,
+    send_heartbeat,
+)
 
 OK = 0
 FAILED = 1
@@ -70,7 +84,7 @@ def main(dry_run: bool = False, test: bool = False, repeat_hours: int | None = N
         return FAILED
 
     if test:
-        return _test(channels, settings.alert_subject_prefix)
+        return _test(channels, settings)
 
     # Схему команда не правит: состояние отправленных алертов лежит в базе,
     # и работать на устаревшей схеме хуже, чем не запуститься.
@@ -86,6 +100,17 @@ def main(dry_run: bool = False, test: bool = False, repeat_hours: int | None = N
             dry_run=dry_run,
         )
 
+    code = _say(report, dry_run)
+    if not dry_run:
+        # Пульс — только после удачной проверки. Если проверка не состоялась
+        # или алерт не ушёл, сигнала нет, и о беде узнает сторож снаружи
+        # по его пропаже: это и есть ответ на «о своей смерти не сообщить».
+        _pulse(settings, healthy=code == OK)
+    return code
+
+
+def _say(report: Report, dry_run: bool) -> int:
+    """Печатает исход прогона и возвращает код возврата."""
     _print_channels(report)
     if not report.decisions:
         if report.open_problems:
@@ -118,16 +143,48 @@ def main(dry_run: bool = False, test: bool = False, repeat_hours: int | None = N
     return OK
 
 
-def _test(channels: list, prefix: str) -> int:
-    """Проверка самих каналов: отправить и сказать, кто принял."""
-    if not channels:
+def _pulse(settings, healthy: bool = True) -> bool:
+    """Дёргает адрес пульса, если он настроен (задача G-18).
+
+    Возвращает ``False`` только в одном случае: пульс настроен и не ушёл.
+    В обычном прогоне это не меняет кода возврата — загрузка данных и алерты
+    от пульса не зависят, а о пропаже сигнала и так узнает тот, кто его ждёт;
+    в проверке каналов (``--test``) считается отказом, потому что проверяется
+    как раз исправность связи. Адрес наружу выходит маской: в нём ключ.
+    """
+    url = (getattr(settings, "heartbeat_url", "") or "").strip()
+    if not url:
+        return True
+    if not healthy:
+        # Молчание — и есть сигнал: сторож снаружи заметит пропажу сам.
         print(
-            "Проверять нечего: доставка алертов не настроена "
-            "(ни SMTP_HOST, ни ALERT_WEBHOOK_URL).",
+            f"Пульс не отправлен: прогон неудачный. Сторож ({mask_url(url)}) "
+            "поднимет тревогу, когда сигнал пропадёт."
+        )
+        return True
+    try:
+        send_heartbeat(url)
+    except DeliveryError as error:
+        event("пульс не ушёл", level=logging.WARNING, where=mask_url(url), reason=str(error))
+        print(f"Пульс не ушёл на {mask_url(url)}: {error}", file=sys.stderr)
+        return False
+    event("пульс отправлен", where=mask_url(url))
+    print(f"Пульс отправлен: {mask_url(url)}")
+    return True
+
+
+def _test(channels: list, settings) -> int:
+    """Проверка связи целиком: каналы доставки и пульс наружу."""
+    pulse_url = (getattr(settings, "heartbeat_url", "") or "").strip()
+    if not channels and not pulse_url:
+        print(
+            "Проверять нечего: ни доставка алертов не настроена "
+            "(SMTP_HOST, ALERT_WEBHOOK_URL), ни пульс наружу (HEARTBEAT_URL).",
             file=sys.stderr,
         )
         return FAILED
 
+    prefix = settings.alert_subject_prefix
     moment = datetime.now(UTC).replace(microsecond=0)
     note = Note(
         subject=f"{prefix} проверка доставки".strip(),
@@ -137,22 +194,27 @@ def _test(channels: list, prefix: str) -> int:
             "Если письмо или сообщение пришло — о сбоях загрузки сообщат так же."
         ),
     )
-    print("Каналы доставки:")
-    for channel in channels:
-        print(f"  {channel.describe()}")
+    if channels:
+        print("Каналы доставки:")
+        for channel in channels:
+            print(f"  {channel.describe()}")
 
-    sent, failures = deliver(channels, note)
+    sent, failures = deliver(channels, note) if channels else ([], [])
     for line in failures:
         print(f"Канал не принял — {line}", file=sys.stderr)
     if sent:
         print(f"Приняли: {', '.join(sent)}.")
+    # Пульс проверяется вместе с каналами: сторож, которого ни разу
+    # не дёргали, — такое же предположение, как непроверенный канал.
+    pulsed = _pulse(settings)
     event(
         "проверка доставки алертов",
-        level=logging.WARNING if failures else logging.INFO,
+        level=logging.WARNING if failures or not pulsed else logging.INFO,
         sent=",".join(sent) or "-",
         failed=len(failures),
+        pulse="ok" if pulsed else "failed",
     )
-    return FAILED if failures else OK
+    return FAILED if failures or not pulsed else OK
 
 
 if __name__ == "__main__":

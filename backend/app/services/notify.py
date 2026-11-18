@@ -182,6 +182,27 @@ class WebhookChannel:
             raise DeliveryError(type(error).__name__) from None
 
 
+def send_heartbeat(url: str, timeout: float = TIMEOUT_SECONDS) -> None:
+    """Пульс наружу: «система жива и только что проверила себя» (задача G-18).
+
+    Сообщить о собственной смерти нельзя — выключенная машина не отправляет
+    ничего. Но можно делать обратное: пока всё в порядке, система дёргает
+    чужой адрес, а сторож снаружи ждёт этого сигнала и поднимает тревогу,
+    когда он пропал. Так молчание само становится сообщением.
+
+    Метод GET: его принимают и healthchecks.io, и push-проверки Uptime Kuma,
+    и Dead Man's Snitch — выбирать за заказчика сторожа не нужно.
+    """
+    try:
+        response = httpx.get(url, timeout=timeout)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as error:
+        # Только код: в адресе пульса лежит ключ, как и у вебхука.
+        raise DeliveryError(f"ответ {error.response.status_code}") from None
+    except httpx.HTTPError as error:
+        raise DeliveryError(type(error).__name__) from None
+
+
 def smtp_port(settings: Settings) -> int:
     if settings.smtp_port:
         return settings.smtp_port
@@ -217,6 +238,9 @@ def check_config(settings: Settings) -> None:
         raise AlertConfigError("ALERT_WEBHOOK_CHAT_ID задан без ALERT_WEBHOOK_URL: слать некуда.")
     if settings.alert_repeat_hours < 0:
         raise AlertConfigError("ALERT_REPEAT_HOURS не может быть отрицательным.")
+    pulse = settings.heartbeat_url.strip()
+    if pulse and not pulse.startswith(("http://", "https://")):
+        raise AlertConfigError("HEARTBEAT_URL должен начинаться с http:// или https://.")
 
 
 def make_channels(settings: Settings) -> list[Channel]:
