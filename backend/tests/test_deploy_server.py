@@ -119,6 +119,9 @@ def test_redeploy_runs_the_installed_copy_not_the_file_it_overwrites():
     assert "/usr/local/bin/raketa-deploy" in install
     assert 'command="/usr/local/bin/raketa-deploy"' in install, "ключ умеет только это"
     assert "git reset --quiet --hard" in body, "сервер руками не правят"
+    # raketa-cert systemd запускает от root. Обновляй его deploy.sh — и право
+    # на push в репозиторий стало бы правом на root на машине.
+    assert "/usr/local/bin/raketa-cert" not in body
 
 
 def test_redeploy_rolls_back_when_the_site_does_not_answer():
@@ -153,8 +156,12 @@ def test_the_watcher_deploys_only_what_ci_passed():
     body = text(WATCH)
 
     assert 'status") != "completed"' in body, "идущие проверки — не зелёные"
-    assert 'conclusion") != "success"' in body
     assert "нет проверок" in body, "проверки могли не начаться — это не зелёный"
+    # Пропущенное задание (включаемая выкладка через Actions) приходит
+    # с conclusion "skipped". Считать его красным — значит ждать зелёного
+    # вечно; это нашлось на живом прогоне, а не здесь.
+    assert '{"success", "skipped", "neutral"}' in body
+    assert 'conclusion") not in OK' in body
     assert "/usr/local/bin/raketa-deploy" in body
     assert "raketa-watch.timer" in text(INSTALL), "без таймера скрипт никто не позовёт"
 

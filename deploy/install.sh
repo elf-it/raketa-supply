@@ -87,7 +87,10 @@ install -m 0755 "$APP_DIR/deploy/cert.sh" /usr/local/bin/raketa-cert
 install -m 0755 "$APP_DIR/deploy/watch.sh" /usr/local/bin/raketa-watch
 # raketa-deploy работает из /usr/local/bin именно потому, что git reset
 # в нём перезаписывает исходный файл скрипта — см. комментарий в deploy.sh.
-chown "$DEPLOY_USER" /usr/local/bin/raketa-deploy
+# Эти две копии обновляет сам deploy.sh после удачного прогона, поэтому
+# они принадлежат ему. raketa-cert остаётся за root: его systemd запускает
+# от root, и право на push не должно становиться правом на root.
+chown "$DEPLOY_USER" /usr/local/bin/raketa-deploy /usr/local/bin/raketa-watch
 echo "raketa-deploy, raketa-cert, raketa-watch"
 
 say "слежение за правками в GitHub"

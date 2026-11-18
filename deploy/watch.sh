@@ -63,6 +63,11 @@ fi
 verdict=$(printf '%s' "$checks" | python3 -c '
 import json, sys
 
+# Пропущенное и необязательное — не красное. Иначе в списке проверок коммита
+# оказывается выключенное задание выкладки (conclusion "skipped"), и сторож
+# ждёт зелёного вечно. Это нашлось на живом прогоне: тесты такого не видят.
+OK = {"success", "skipped", "neutral"}
+
 runs = json.load(sys.stdin).get("check_runs") or []
 if not runs:
     # Проверки могли ещё не начаться — это не повод выкладывать.
@@ -70,7 +75,7 @@ if not runs:
 elif any(run.get("status") != "completed" for run in runs):
     print("проверки идут")
 else:
-    bad = [run["name"] for run in runs if run.get("conclusion") != "success"]
+    bad = [run["name"] for run in runs if run.get("conclusion") not in OK]
     print("красный: " + ", ".join(bad) if bad else "зелёный")
 ')
 

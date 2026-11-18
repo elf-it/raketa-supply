@@ -35,6 +35,7 @@ HEALTH_URL=${HEALTH_URL:-http://127.0.0.1:8080/api/v1/health}
 READY_URL=${READY_URL:-http://127.0.0.1:8080/api/v1/health/ready}
 HEALTH_TRIES=${HEALTH_TRIES:-40}
 INSTALLED_COPY=${INSTALLED_COPY:-/usr/local/bin/raketa-deploy}
+INSTALLED_WATCH=${INSTALLED_WATCH:-/usr/local/bin/raketa-watch}
 
 say() { printf '%s %s\n' "$(date '+%F %T')" "$*"; }
 
@@ -97,10 +98,18 @@ fi
 # в них база.
 docker image prune -f >/dev/null 2>&1 || true
 
-# Обновление установленной копии — последним делом, когда прогон уже удался.
-if [ -w "$INSTALLED_COPY" ] && ! cmp -s "$APP_DIR/deploy/deploy.sh" "$INSTALLED_COPY"; then
-    install -m 0755 "$APP_DIR/deploy/deploy.sh" "$INSTALLED_COPY"
-    say "сам скрипт развёртывания обновлён — новая версия сработает со следующего раза"
-fi
+# Обновление установленных копий — последним делом, когда прогон уже удался.
+# Обновляются только те, что работают от того же пользователя: raketa-cert
+# systemd запускает от root, и позволять правкам в репозитории менять его
+# содержимое значило бы делать из права на push право на root. Его обновляет
+# install.sh, то есть человек с правами root.
+for pair in "deploy.sh:$INSTALLED_COPY" "watch.sh:$INSTALLED_WATCH"; do
+    src="$APP_DIR/deploy/${pair%%:*}"
+    dst=${pair##*:}
+    if [ -w "$dst" ] && ! cmp -s "$src" "$dst"; then
+        install -m 0755 "$src" "$dst"
+        say "$(basename "$dst") обновлён — новая версия сработает со следующего раза"
+    fi
+done
 
 say "готово: $(git rev-parse --short HEAD)"
