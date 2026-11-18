@@ -3,7 +3,7 @@
 # В готовый образ не попадают ни node_modules, ни исходники: nginx отдаёт
 # статику, а собирает её промежуточный слой, который в итоговый образ не идёт.
 
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 
 WORKDIR /src
 

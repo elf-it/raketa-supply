@@ -72,6 +72,23 @@ def test_schema_is_migrated_by_a_separate_step(compose):
     assert backend["depends_on"]["db"]["condition"] == "service_healthy"
 
 
+def test_the_frontend_is_built_on_the_node_the_ci_checks(compose):
+    """Образ и CI должны брать одну версию Node (задача A-9).
+
+    Разойдись они — CI проверял бы не то, что собирается в прод, и узналось
+    бы это на развёртывании. Желаемая версия лежит в одном месте, `.nvmrc`;
+    CI читает её оттуда, Dockerfile повторяет цифру в имени образа.
+    """
+    wanted = (ROOT / "frontend" / ".nvmrc").read_text(encoding="utf-8").strip()
+    dockerfile = (ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert wanted.isdigit() and int(wanted) >= 22, "Node 20 и 22 без поддержки"
+    assert f"FROM node:{wanted}-alpine" in dockerfile
+    assert "node-version-file: frontend/.nvmrc" in workflow, "одно место, а не два"
+    assert "node-version:" not in workflow, "иначе версия снова разойдётся"
+
+
 def test_alert_delivery_reaches_the_container(compose):
     """Не переданная в контейнер настройка — это молча не уходящие алерты (G-16)."""
     env = _env(compose["services"]["backend"])
