@@ -1,0 +1,74 @@
+# Выкладка на сервер после правок (задача A-10).
+#
+# Решения и почему так:
+#
+# * **Пуск не по push, а по успешному CI.** Выложить красный main — значит
+#   уронить сайт правкой, о которой уже известно, что она сломана. Поэтому
+#   триггер — завершение рабочего процесса «CI» на main, и только с итогом
+#   success. Цена — выкладка начинается на несколько минут позже.
+#
+# * **В этом файле нет ни адреса сервера, ни пользователя.** Репозиторий
+#   публичный. Всё, что говорит, куда и чем ходить, лежит в секретах:
+#   DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS.
+#
+# * **Ключ хоста проверяется.** Без known_hosts остаётся
+#   StrictHostKeyChecking=no, то есть выкладка пойдёт на любую машину,
+#   которая успеет ответить на этот адрес.
+#
+# * **Сборка идёт на сервере, а не здесь.** Образы, собранные в Actions,
+#   пришлось бы где-то хранить и откуда-то забирать; при одном сервере
+#   это лишний узел. Пределы такого решения — в docs/09-runbook.md.
+#
+# * **Ключом нельзя сделать ничего, кроме выкладки**: на сервере он записан
+#   с принудительной командой (deploy/install.sh). Команда в ssh ниже
+#   не указана намеренно — её всё равно подменит сервер.
+
+name: Выкладка
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+  # Чтобы выложить то же самое ещё раз, не делая пустого коммита.
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  # Прерывать нельзя: на том конце идёт сборка и запуск контейнеров.
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Сервер
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Ключ и известный хост
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$KEY" ] || [ -z "$KNOWN" ]; then
+            echo "::error::Секреты DEPLOY_SSH_KEY и DEPLOY_KNOWN_HOSTS не заданы." \
+                 "Без них выкладка пошла бы на непроверенную машину."
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts
+
+      - name: Развернуть
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy \
+              -o StrictHostKeyChecking=yes \
+              -o BatchMode=yes \
+              -o ConnectTimeout=20 \
+              -o ServerAliveInterval=15 \
+              "$USER@$HOST" true
