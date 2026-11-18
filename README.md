@@ -200,6 +200,10 @@ docker compose -f docker-compose.prod.yml up -d --build
 запущенной в контейнере. Что внутри и чего не хватает для настоящего сервера (HTTPS) —
 [docs/09-runbook.md](docs/09-runbook.md).
 
+На боевой машине это же поднимается набором из [deploy/](deploy/README.md): внешний
+nginx с TLS, перезапуск по зелёному CI раз в две минуты, сертификат сам. Порядок
+и пределы — раздел «Сервер atl73.ru» в [docs/09-runbook.md](docs/09-runbook.md).
+
 **Бэкенд**
 
 ```bash
