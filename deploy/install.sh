@@ -23,6 +23,7 @@ DOMAIN=${DOMAIN:-atl73.ru}
 EXTRA_NAMES=${EXTRA_NAMES:-www.$DOMAIN}
 SERVER_IP=${SERVER_IP:-}
 APP_DIR=${APP_DIR:-/opt/raketa}
+REPO=${REPO:-elf-it/raketa-supply}
 UPSTREAM=${UPSTREAM:-127.0.0.1:8080}
 DEPLOY_USER=${DEPLOY_USER:-deploy}
 ACME_ROOT=${ACME_ROOT:-/var/www/acme}
@@ -83,10 +84,42 @@ echo "имена: $names → $UPSTREAM"
 say "команды"
 install -m 0755 "$APP_DIR/deploy/deploy.sh" /usr/local/bin/raketa-deploy
 install -m 0755 "$APP_DIR/deploy/cert.sh" /usr/local/bin/raketa-cert
+install -m 0755 "$APP_DIR/deploy/watch.sh" /usr/local/bin/raketa-watch
 # raketa-deploy работает из /usr/local/bin именно потому, что git reset
 # в нём перезаписывает исходный файл скрипта — см. комментарий в deploy.sh.
 chown "$DEPLOY_USER" /usr/local/bin/raketa-deploy
-echo "raketa-deploy, raketa-cert"
+echo "raketa-deploy, raketa-cert, raketa-watch"
+
+say "слежение за правками в GitHub"
+cat > /etc/systemd/system/raketa-watch.service <<CONF
+[Unit]
+Description=Заметить правки в GitHub и перезапустить, если CI зелёный
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=$DEPLOY_USER
+WorkingDirectory=$APP_DIR
+Environment=REPO=$REPO
+ExecStart=/usr/local/bin/raketa-watch
+CONF
+cat > /etc/systemd/system/raketa-watch.timer <<'CONF'
+[Unit]
+Description=Опрашивать GitHub раз в две минуты
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+# Без этого несколько таймеров просыпались бы в одну и ту же секунду.
+RandomizedDelaySec=15
+Unit=raketa-watch.service
+
+[Install]
+WantedBy=timers.target
+CONF
+systemctl daemon-reload
+systemctl enable --now raketa-watch.timer
+systemctl list-timers raketa-watch.timer --no-pager | head -3
 
 say "ожидание домена"
 cat > /etc/systemd/system/raketa-cert.service <<CONF

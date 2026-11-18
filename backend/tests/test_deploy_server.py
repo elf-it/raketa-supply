@@ -25,6 +25,7 @@ SITE = DEPLOY / "nginx-site.conf"
 INSTALL = DEPLOY / "install.sh"
 CERT = DEPLOY / "cert.sh"
 REDEPLOY = DEPLOY / "deploy.sh"
+WATCH = DEPLOY / "watch.sh"
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy.yml"
 COMPOSE = ROOT / "docker-compose.prod.yml"
 EXAMPLE = ROOT / ".env.prod.example"
@@ -128,6 +129,47 @@ def test_redeploy_rolls_back_when_the_site_does_not_answer():
     assert "/api/v1/health" in body and "/api/v1/health/ready" in body
     assert body.count("git reset") >= 2, "второй reset — это откат на прежний коммит"
     assert "flock -n 9" in body, "два `up --build` на двух ядрах — это OOM"
+
+
+def test_the_watcher_spends_the_api_limit_only_when_there_is_news():
+    """Опрос API каждые две минуты — половина предела для неавторизованных.
+
+    Предел в 60 запросов в час считается на адрес, то есть делился бы со всем
+    остальным, что спросит GitHub с этой машины. `git ls-remote` не ограничен
+    ничем, поэтому он идёт первым, а до API дело доходит только когда правки
+    действительно есть. Порядок здесь — и есть смысл решения.
+    """
+    # Решение объяснено в шапке скрипта теми же словами, поэтому порядок
+    # проверяется по исполняемым строкам: иначе тест сверял бы комментарий.
+    code = "\n".join(line for line in text(WATCH).splitlines() if not line.lstrip().startswith("#"))
+
+    assert "git ls-remote" in code and "api.github.com" in code
+    assert code.index("git ls-remote") < code.index("api.github.com")
+    assert "check-runs" in code, "нужно состояние проверок коммита"
+
+
+def test_the_watcher_deploys_only_what_ci_passed():
+    """Пока проверки идут — тик ничего не делает: следующий через две минуты."""
+    body = text(WATCH)
+
+    assert 'status") != "completed"' in body, "идущие проверки — не зелёные"
+    assert 'conclusion") != "success"' in body
+    assert "нет проверок" in body, "проверки могли не начаться — это не зелёный"
+    assert "/usr/local/bin/raketa-deploy" in body
+    assert "raketa-watch.timer" in text(INSTALL), "без таймера скрипт никто не позовёт"
+
+
+def test_github_actions_deployment_stays_opt_in():
+    """Основной путь — опрос с сервера; Actions быстрее, но ценой ключа.
+
+    Приватный ключ в секретах читает всякий, кто может менять рабочие
+    процессы, поэтому выбор оставлен человеку. Без переменной задание
+    пропускается, а не падает: красный крест на каждом push означал бы
+    «что-то сломано», когда ничего не сломано.
+    """
+    flow = yaml.safe_load(text(WORKFLOW))
+
+    assert "vars.DEPLOY_ENABLED == 'true'" in flow["jobs"]["deploy"]["if"]
 
 
 def test_the_workflow_deploys_only_green_main():
