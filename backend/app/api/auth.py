@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -17,10 +17,12 @@ from ..schemas import LoginIn, PasswordChangeIn, UserCreateIn, UserOut, UserUpda
 from ..security import (
     SESSION_COOKIE,
     create_token,
+    decode_token,
     hash_password,
     password_changed_now,
     verify_password,
 )
+from ..services.sessions import revoke
 from .deps import current_user, require_admin
 
 router = APIRouter(prefix="/auth", tags=["Доступ"])
@@ -111,8 +113,26 @@ def login(
 
 
 @router.post("/logout", summary="Выход")
-def logout(response: Response) -> dict:
+def logout(
+    response: Response,
+    session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Закрывает сессию, а не только куку (задача G-20).
+
+    Прав здесь намеренно не требуется: выход должен срабатывать и с истёкшей,
+    и с испорченной кукой — иначе человек остаётся с нерабочей сессией
+    и ошибкой вместо выхода. Удаление куки происходит всегда, отзыв — когда
+    токен разбирается и в нём есть номер.
+
+    Подделать выход со стороннего сайта нельзя: кука стоит с ``SameSite=Lax``,
+    и межсайтовый POST её не принесёт. Да и ущерб от такой подделки — лишний
+    повторный вход.
+    """
     response.delete_cookie(SESSION_COOKIE, path="/")
+    payload = decode_token(session_cookie) if session_cookie else None
+    if payload and revoke(session, payload):
+        event("выход", user=payload.get("sub"))
     return {"status": "ok"}
 
 

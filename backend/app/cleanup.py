@@ -82,6 +82,14 @@ def main(
             "поставил число. Чистить его — отдельный ключ --journal-days."
         )
 
+    if plan.sessions:
+        print(
+            f"Отозванные сессии с истёкшим сроком: "
+            f"{'к удалению' if dry_run else 'удалено'} {plan.sessions}"
+        )
+    else:
+        print("Отозванных сессий с истёкшим сроком нет.")
+
     if dry_run:
         print("Ничего не удалено: прогон вхолостую.")
     else:
@@ -90,6 +98,7 @@ def main(
             level=logging.INFO,
             runs=plan.runs,
             journal=plan.journal,
+            sessions=plan.sessions,
             run_days=run_days,
             journal_days=journal_days,
         )

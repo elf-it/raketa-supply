@@ -20,7 +20,7 @@ from app.admin import PASSWORD_ENV, active_admins, ensure_admin, main, resolve_p
 from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Role, User
-from app.security import SESSION_COOKIE, verify_password
+from app.security import SESSION_COOKIE, new_session_id, verify_password
 
 NEW = "runbook-admin@raketa.local"
 
@@ -83,10 +83,20 @@ def _minute_old_cookie(user_id: int, role: str) -> str:
     смены пароля сравнивается с ним в целых секундах — сессия, выданная в ту же
     секунду, уцелеет намеренно (``api/deps.py``). Тест на живом входе поэтому
     зависел бы от того, успела ли между входом и правкой щёлкнуть секунда.
+
+    Номер сессии здесь обязателен: с задачи G-20 токен без него не принимается
+    вовсе, и кука гасла бы не из-за смены пароля, а из-за отсутствия номера —
+    то есть тест проходил бы, ничего не проверяя.
     """
     moment = datetime.now(UTC) - timedelta(minutes=1)
     return jwt.encode(
-        {"sub": str(user_id), "role": role, "iat": moment, "exp": moment + timedelta(hours=12)},
+        {
+            "sub": str(user_id),
+            "role": role,
+            "jti": new_session_id(),
+            "iat": moment,
+            "exp": moment + timedelta(hours=12),
+        },
         get_settings().secret_key,
         algorithm="HS256",
     )

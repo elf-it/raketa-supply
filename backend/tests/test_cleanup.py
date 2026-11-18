@@ -14,7 +14,14 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, func, select
 
 from app.db import SessionLocal
-from app.models import AdjustmentLog, Store, StoreProduct, SyncRun, SyncStatus
+from app.models import (
+    AdjustmentLog,
+    RevokedSession,
+    Store,
+    StoreProduct,
+    SyncRun,
+    SyncStatus,
+)
 from app.services.cleanup import plan_cleanup, protected_run_ids, run_cleanup
 from app.services.monitoring import NEVER, sync_health
 
@@ -160,6 +167,44 @@ def test_a_dry_run_changes_nothing(client):
             assert session.get(SyncRun, older) is not None
     finally:
         _forget([old, older])
+
+
+def test_expired_revocations_go_without_a_key_and_without_a_retention(seeded_db):
+    """Отозванная сессия (G-20) хранится ровно до срока своего токена.
+
+    Срока хранения у этих строк нет и быть не может: держать дольше
+    бессмысленно — просроченный токен отвергает подпись, — а удалять раньше
+    значит вернуть отозванный токен в работу. Поэтому чистка берёт их
+    при любых ключах, в том числе когда журналы не чистятся вовсе.
+    """
+    now = _now()
+    with SessionLocal() as session:
+        try:
+            session.add_all(
+                [
+                    RevokedSession(jti="просроченный", expires_at=now - timedelta(minutes=1)),
+                    RevokedSession(jti="действующий", expires_at=now + timedelta(hours=5)),
+                ]
+            )
+            session.commit()
+
+            plan = plan_cleanup(session, run_days=0, journal_days=0, now=now)
+            assert plan.sessions == 1
+
+            done = run_cleanup(session, run_days=0, journal_days=0, now=now)
+
+            # Проверяются свои две строки, а не вся таблица: выход вызывают
+            # и другие тесты, и их отзывы — такие же законные строки.
+            assert done.sessions == 1
+            assert session.get(RevokedSession, "просроченный") is None
+            assert session.get(RevokedSession, "действующий") is not None
+        finally:
+            session.execute(
+                delete(RevokedSession).where(
+                    RevokedSession.jti.in_(["просроченный", "действующий"])
+                )
+            )
+            session.commit()
 
 
 def test_the_command_says_what_it_kept(client, capsys):

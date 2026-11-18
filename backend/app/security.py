@@ -14,12 +14,18 @@
 * **Секрет только из окружения.** В отладке есть значение по умолчанию, в проде
   приложение без ``SECRET_KEY`` не стартует: подписанный общеизвестным ключом токен
   подделывается кем угодно.
+* **У каждого токена есть номер (``jti``).** Токен самодостаточен: сервер не держит
+  список выданных сессий, а проверяет подпись. Без номера отозвать одну сессию
+  нечем — выход мог бы только удалить куку в браузере, оставив токен рабочим
+  до конца срока (задача G-20). Номер позволяет держать короткий список
+  отозванных вместо длинного списка действующих.
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
+import secrets
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
@@ -58,12 +64,22 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+def new_session_id() -> str:
+    """Номер сессии (``jti``) — случайный и неугадываемый.
+
+    Нужен, чтобы выход мог отозвать **одну** сессию: без номера отозвать
+    можно было бы только все сессии человека разом (задача G-20).
+    """
+    return secrets.token_urlsafe(32)
+
+
 def create_token(user_id: int, role: str) -> str:
     settings = get_settings()
     now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "role": role,
+        "jti": new_session_id(),
         "iat": now,
         "exp": now + timedelta(hours=settings.session_ttl_hours),
     }

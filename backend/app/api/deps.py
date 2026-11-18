@@ -16,6 +16,7 @@ from ..db import get_session
 from ..models import ROLE_ORDER, Role, User
 from ..observability import set_actor
 from ..security import SESSION_COOKIE, decode_token
+from ..services.sessions import is_revoked
 
 UNAUTHORIZED = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED, detail="Нужно войти в систему"
@@ -37,6 +38,17 @@ def current_user(
         user_id = int(payload.get("sub", ""))
     except (TypeError, ValueError):
         raise UNAUTHORIZED from None
+
+    # Выход закрывает именно эту сессию (задача G-20). Проверка идёт до чтения
+    # пользователя: отозванный токен не повод ходить в базу за ним дважды.
+    jti = payload.get("jti")
+    if not isinstance(jti, str) or not jti:
+        # Токены без номера выдавались до G-20, и отозвать их нечем — значит
+        # выход для них бессилен. Один обязательный повторный вход лучше
+        # двенадцати часов необратимой сессии.
+        raise UNAUTHORIZED
+    if is_revoked(session, jti):
+        raise UNAUTHORIZED
 
     user = session.get(User, user_id)
     # Отключённый пользователь не должен доживать на уже выданном токене.

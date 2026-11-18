@@ -27,6 +27,12 @@
   не пересчитывают, и поднимать из-за них в память сотни тысяч сущностей
   незачем. Номера версий расчёта такие удаления не трогают: ни прогон
   синхронизации, ни запись журнала в расчёт не входят.
+
+* **Отозванные сессии чистятся без ключа и без срока.** Строка об отзыве
+  (задача G-20) нужна ровно до ``exp`` своего токена: после него токен
+  отвергает подпись. Держать дольше бессмысленно, удалять раньше — значит
+  вернуть отозванный токен в работу. Выбирать здесь нечего, поэтому
+  настройки нет.
 """
 
 from __future__ import annotations
@@ -37,7 +43,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from ..models import AdjustmentLog, Store, SyncRun
+from ..models import AdjustmentLog, RevokedSession, Store, SyncRun
 
 #: Сколько хранить прогоны синхронизации. Месяца хватает на разбор любого
 #: «почему в прошлый вторник числа были не те»: дальше смотрят в лог.
@@ -57,6 +63,8 @@ class CleanupPlan:
 
     runs: int = 0
     journal: int = 0
+    #: Просроченные отзывы сессий (задача G-20) — срока хранения у них нет.
+    sessions: int = 0
     kept_runs: list[str] = None  # type: ignore[assignment]
     run_cutoff: datetime | None = None
     journal_cutoff: datetime | None = None
@@ -67,7 +75,7 @@ class CleanupPlan:
 
     @property
     def total(self) -> int:
-        return self.runs + self.journal
+        return self.runs + self.journal + self.sessions
 
 
 def protected_run_ids(session: Session) -> dict[int, int]:
@@ -126,6 +134,15 @@ def plan_cleanup(
             )
             or 0
         )
+
+    plan.sessions = (
+        session.scalar(
+            select(func.count())
+            .select_from(RevokedSession)
+            .where(RevokedSession.expires_at < moment)
+        )
+        or 0
+    )
     return plan
 
 
@@ -136,7 +153,11 @@ def run_cleanup(
     now: datetime | None = None,
 ) -> CleanupPlan:
     """Удаляет то, что посчитал план. Возвращает его же — с числами удалённого."""
-    plan = plan_cleanup(session, run_days, journal_days, now)
+    # Момент фиксируется один раз на весь прогон: посчитай план по одному
+    # времени, а удаляй по другому — и удалённых окажется больше, чем обещал
+    # прогон вхолостую.
+    moment = now or _now()
+    plan = plan_cleanup(session, run_days, journal_days, moment)
 
     if plan.run_cutoff is not None and plan.runs:
         keep = set(protected_run_ids(session).values())
@@ -147,6 +168,8 @@ def run_cleanup(
         )
     if plan.journal_cutoff is not None and plan.journal:
         session.execute(delete(AdjustmentLog).where(AdjustmentLog.created_at < plan.journal_cutoff))
+    if plan.sessions:
+        session.execute(delete(RevokedSession).where(RevokedSession.expires_at < moment))
     if plan.total:
         session.commit()
     return plan
