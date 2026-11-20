@@ -26,6 +26,7 @@ INSTALL = DEPLOY / "install.sh"
 CERT = DEPLOY / "cert.sh"
 REDEPLOY = DEPLOY / "deploy.sh"
 WATCH = DEPLOY / "watch.sh"
+REFRESH = DEPLOY / "refresh-demo.py"
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy.yml"
 COMPOSE = ROOT / "docker-compose.prod.yml"
 EXAMPLE = ROOT / ".env.prod.example"
@@ -122,6 +123,26 @@ def test_redeploy_runs_the_installed_copy_not_the_file_it_overwrites():
     # raketa-cert systemd запускает от root. Обновляй его deploy.sh — и право
     # на push в репозиторий стало бы правом на root на машине.
     assert "/usr/local/bin/raketa-cert" not in body
+
+
+def test_refreshing_demo_data_keeps_the_passwords_that_were_handed_out():
+    """Сид чистит таблицу пользователей — он задуман для пустой базы.
+
+    На живой машине это значит, что после каждого обновления данных все
+    выданные пароли перестают работать без предупреждения. Поэтому учётные
+    записи снимаются **до** импорта сида (он чистит базу сразу при вызове)
+    и возвращаются после — вместе с хешами. Порядок здесь и есть решение.
+    """
+    body = text(REFRESH)
+    code = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("#"))
+
+    assert code.index("select(User)") < code.index("from app import seed"), "снять до сида"
+    for field in ("password_hash", "role", "is_active", "password_changed_at"):
+        assert f'"{field}": user.{field}' in code, f"{field} не сохраняется"
+    assert 'user.password_hash = row["password_hash"]' in code, "хеш не возвращается"
+    # Через runpy имя модуля не `__main__`, и обычная проверка не сработала бы.
+    assert "__main__" not in code
+    assert "runpy" in text(RUNBOOK), "в инструкции должен быть рабочий запуск"
 
 
 def test_the_installed_copies_are_written_not_replaced():
