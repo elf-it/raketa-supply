@@ -82,18 +82,18 @@ systemctl reload nginx
 echo "имена: $names → $UPSTREAM"
 
 say "команды"
-install -m 0755 "$APP_DIR/deploy/deploy.sh" /usr/local/bin/raketa-deploy
-install -m 0755 "$APP_DIR/deploy/cert.sh" /usr/local/bin/raketa-cert
-install -m 0755 "$APP_DIR/deploy/watch.sh" /usr/local/bin/raketa-watch
-install -m 0755 "$APP_DIR/deploy/backup.sh" /usr/local/bin/raketa-backup
-# raketa-deploy работает из /usr/local/bin именно потому, что git reset
-# в нём перезаписывает исходный файл скрипта — см. комментарий в deploy.sh.
-# Эти две копии обновляет сам deploy.sh после удачного прогона, поэтому
-# они принадлежат ему. raketa-cert остаётся за root: его systemd запускает
-# от root, и право на push не должно становиться правом на root.
-chown "$DEPLOY_USER" /usr/local/bin/raketa-deploy /usr/local/bin/raketa-watch \
-    /usr/local/bin/raketa-backup
-echo "raketa-deploy, raketa-cert, raketa-watch, raketa-backup"
+# Ссылки, а не копии: исполняется всё равно копия в /tmp, которую скрипт
+# делает сам в первых строках (см. deploy.sh). Держать ещё одну копию здесь
+# значило бы держать её в согласии с репозиторием — чем и была прежняя
+# схема, не работавшая ни разу.
+for name in deploy watch backup; do
+    ln -sfn "$APP_DIR/deploy/$name.sh" "/usr/local/bin/raketa-$name"
+done
+# raketa-cert — именно копия, и владеет ей root: его запускает systemd
+# от root, и право на push в репозиторий не должно становиться правом
+# на root на машине.
+install -m 0755 -o root -g root "$APP_DIR/deploy/cert.sh" /usr/local/bin/raketa-cert
+echo "raketa-deploy, raketa-watch, raketa-backup (ссылки), raketa-cert (копия от root)"
 
 say "слежение за правками в GitHub"
 cat > /etc/systemd/system/raketa-watch.service <<CONF

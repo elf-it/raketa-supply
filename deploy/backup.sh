@@ -34,6 +34,17 @@
 #   тот пропал (как в задаче G-18). Пусто — пульс не отправляется.
 set -euo pipefail
 
+# Работа с копии: выкладка перезаписывает файл этого скрипта (`git reset`),
+# а bash читает его по мере выполнения. Подробное объяснение — в deploy.sh.
+case "$0" in
+    /tmp/raketa-run.*) : ;;
+    *)
+        self=$(mktemp /tmp/raketa-run.XXXXXX)
+        cat "$0" > "$self"
+        exec bash "$self" "$@"
+        ;;
+esac
+
 APP_DIR=${APP_DIR:-/opt/raketa}
 COMPOSE_FILE=${COMPOSE_FILE:-docker-compose.prod.yml}
 BACKUP_DIR=${BACKUP_DIR:-/var/backups/raketa}
@@ -82,7 +93,8 @@ finish() {
     printf 'СБОЙ %s\n' "$(date '+%F %T')" > "$STATUS" 2>/dev/null || true
     say "КОПИЯ НЕ СДЕЛАНА — разбирайтесь немедленно, предыдущие копии стареют"
 }
-trap finish EXIT
+# Вместе с уборкой — удаление своей копии в /tmp (см. начало файла).
+trap 'finish; case "$0" in /tmp/raketa-run.*) rm -f "$0";; esac' EXIT
 
 mkdir -p "$BACKUP_DIR"
 chmod 0700 "$BACKUP_DIR"

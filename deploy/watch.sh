@@ -28,6 +28,17 @@
 #   по диагонали.
 set -euo pipefail
 
+# Работа с копии: выкладка перезаписывает файл этого скрипта (`git reset`),
+# а bash читает его по мере выполнения. Подробное объяснение — в deploy.sh.
+case "$0" in
+    /tmp/raketa-run.*) trap 'rm -f "$0"' EXIT ;;
+    *)
+        self=$(mktemp /tmp/raketa-run.XXXXXX)
+        cat "$0" > "$self"
+        exec bash "$self" "$@"
+        ;;
+esac
+
 APP_DIR=${APP_DIR:-/opt/raketa}
 #: Указатель на проверенное. Его ставит CI; руками эту ветку не двигают.
 GREEN_REF=${GREEN_REF:-ci-green}
@@ -60,4 +71,7 @@ if [ "$green" = "$(git rev-parse HEAD)" ]; then
 fi
 
 note "${green:0:7}: проверено — развёртываю"
+# Своя копия удаляется до exec: после него этот процесс перестаёт
+# существовать, и убрать за собой было бы некому.
+case "$0" in /tmp/raketa-run.*) rm -f "$0" ;; esac
 exec "$DEPLOY"

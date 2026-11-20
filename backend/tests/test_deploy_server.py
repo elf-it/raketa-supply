@@ -116,24 +116,17 @@ def test_the_certificate_script_refuses_to_ask_for_a_foreign_domain():
     assert "--keep-until-expiring" in body
 
 
-def test_redeploy_runs_the_installed_copy_not_the_file_it_overwrites():
-    """Скрипт посреди работы перезаписывает сам себя.
+def test_the_key_from_actions_can_only_deploy():
+    """Секреты GitHub читает всякий, кто может менять рабочие процессы.
 
-    bash читает файл по мере выполнения: `git reset --hard` под работающим
-    скриптом — это выполнение половины старой версии и половины новой.
-    Поэтому работает копия в /usr/local/bin, и путь к ней должен совпадать
-    с тем, что стоит в принудительной команде ключа.
+    Поэтому ключ записан с принудительной командой, и путь в ней должен
+    совпадать с тем, что ставит install.sh.
     """
-    body = text(REDEPLOY)
     install = text(INSTALL)
 
-    assert "/usr/local/bin/raketa-deploy" in body
-    assert "/usr/local/bin/raketa-deploy" in install
     assert 'command="/usr/local/bin/raketa-deploy"' in install, "ключ умеет только это"
-    assert "git reset --quiet --hard" in body, "сервер руками не правят"
-    # raketa-cert systemd запускает от root. Обновляй его deploy.sh — и право
-    # на push в репозиторий стало бы правом на root на машине.
-    assert "/usr/local/bin/raketa-cert" not in body
+    assert "/usr/local/bin/raketa-deploy" in install
+    assert "git reset --quiet --hard" in _code(REDEPLOY), "сервер руками не правят"
 
 
 def test_every_copy_is_verified_by_restoring_it():
@@ -151,9 +144,8 @@ def test_every_copy_is_verified_by_restoring_it():
     assert "CHECK_DB" in code and "create database" in code, "в отдельную базу"
     assert "alembic_version" in code, "сверяется ревизия схемы"
     assert '[ "$live_rev" != "$back_rev" ]' in code
-    assert (
-        "drop database if exists" in code and "trap finish EXIT" in code
-    ), "проверочная база удаляется всегда, иначе следующий прогон упрётся в неё"
+    assert "drop database if exists" in code, "иначе следующий прогон упрётся в неё"
+    assert re.search(r"trap '?finish", code), "уборка из trap, а не с удачного пути"
 
 
 def test_the_snapshot_is_taken_by_the_database_container_itself():
@@ -234,23 +226,42 @@ def test_refreshing_demo_data_keeps_the_passwords_that_were_handed_out():
     assert "runpy" in text(RUNBOOK), "в инструкции должен быть рабочий запуск"
 
 
-def test_the_installed_copies_are_written_not_replaced():
-    """Замена файла требует права записи в каталог, а не владения файлом.
+def test_the_scripts_run_from_a_copy_of_themselves():
+    """Выкладка перезаписывает файлы этих скриптов, пока они работают.
 
-    `install` и `cp` сначала снимают прежний файл, и для этого нужно право
-    записи в /usr/local/bin, которого у `deploy` нет и быть не должно.
-    На этом обновление копий молча не работало два дня, а `set -e` ронял
-    прогон уже после удачной выкладки — удавшееся развёртывание сообщало
-    об ошибке. Нашлось на живом сервере; тест закрывает возврат к замене.
+    bash читает скрипт по мере выполнения, а `git reset --hard` посреди
+    прогона меняет его файл: дальше читалась бы середина новой версии.
+    Прежняя схема (копии в /usr/local/bin, обновляемые в конце прогона)
+    была сломана дважды — сначала `install` не мог заменить файл, потом
+    замена перезаписала работающий скрипт, — и оба раза это нашлось только
+    на живом сервере. Копия в /tmp снимает и то, и другое.
     """
-    body = text(REDEPLOY)
-    # Шапка объясняет решение теми же словами, поэтому смотрим на код.
-    code = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("#"))
+    for path in (REDEPLOY, WATCH, BACKUP):
+        code = _code(path)
+        assert "/tmp/raketa-run." in code, f"{path.name}: работа не с копии"
+        assert 'exec bash "$self" "$@"' in code, f"{path.name}: копия не запускается"
+        assert 'rm -f "$0"' in code, f"{path.name}: копия не убирается"
 
-    assert 'cat "$src" > "$dst"' in code
-    assert "install -m" not in code, "замена файла снова вернула бы отказ в праве"
-    assert "cp " not in code
-    assert "нужен root" in code, "неудача обновления копии должна быть видна"
+    # Признак «уже с копии» — путь файла, а не переменная окружения: её
+    # унаследовал бы exec в дочерний скрипт, и тот удалил бы по `$0`
+    # не копию, а установленную ссылку в /usr/local/bin.
+    assert "RAKETA_SELF" not in _code(REDEPLOY)
+    # Обновлять установленные копии больше нечего — их просто нет.
+    assert "update_copy" not in _code(REDEPLOY)
+
+
+def test_the_commands_are_links_except_the_one_root_runs():
+    """Ссылка на файл репозитория — чтобы правка вступала в силу сразу.
+
+    Исключение одно: `raketa-cert` запускает systemd от root, и ссылка
+    на файл репозитория сделала бы из права на push право на root.
+    """
+    install = text(INSTALL)
+
+    assert 'ln -sfn "$APP_DIR/deploy/$name.sh" "/usr/local/bin/raketa-$name"' in install
+    assert "for name in deploy watch backup" in install
+    assert "install -m 0755 -o root -g root" in install, "cert остаётся копией от root"
+    assert "ln -sfn" in install.split("raketa-cert")[0], "ссылки ставятся до cert"
 
 
 def test_redeploy_rolls_back_when_the_site_does_not_answer():
