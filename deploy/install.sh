@@ -26,6 +26,7 @@ APP_DIR=${APP_DIR:-/opt/raketa}
 UPSTREAM=${UPSTREAM:-127.0.0.1:8080}
 DEPLOY_USER=${DEPLOY_USER:-deploy}
 ACME_ROOT=${ACME_ROOT:-/var/www/acme}
+BACKUP_DIR=${BACKUP_DIR:-/var/backups/raketa}
 PUBKEY=${1:-}
 
 say() { printf '\n== %s\n' "$*"; }
@@ -84,13 +85,15 @@ say "команды"
 install -m 0755 "$APP_DIR/deploy/deploy.sh" /usr/local/bin/raketa-deploy
 install -m 0755 "$APP_DIR/deploy/cert.sh" /usr/local/bin/raketa-cert
 install -m 0755 "$APP_DIR/deploy/watch.sh" /usr/local/bin/raketa-watch
+install -m 0755 "$APP_DIR/deploy/backup.sh" /usr/local/bin/raketa-backup
 # raketa-deploy работает из /usr/local/bin именно потому, что git reset
 # в нём перезаписывает исходный файл скрипта — см. комментарий в deploy.sh.
 # Эти две копии обновляет сам deploy.sh после удачного прогона, поэтому
 # они принадлежат ему. raketa-cert остаётся за root: его systemd запускает
 # от root, и право на push не должно становиться правом на root.
-chown "$DEPLOY_USER" /usr/local/bin/raketa-deploy /usr/local/bin/raketa-watch
-echo "raketa-deploy, raketa-cert, raketa-watch"
+chown "$DEPLOY_USER" /usr/local/bin/raketa-deploy /usr/local/bin/raketa-watch \
+    /usr/local/bin/raketa-backup
+echo "raketa-deploy, raketa-cert, raketa-watch, raketa-backup"
 
 say "слежение за правками в GitHub"
 cat > /etc/systemd/system/raketa-watch.service <<CONF
@@ -121,6 +124,39 @@ CONF
 systemctl daemon-reload
 systemctl enable --now raketa-watch.timer
 systemctl list-timers raketa-watch.timer --no-pager | head -3
+
+say "резервные копии"
+install -d -m 0700 -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$BACKUP_DIR"
+cat > /etc/systemd/system/raketa-backup.service <<CONF
+[Unit]
+Description=Копия базы с проверкой восстановления
+After=docker.service
+
+[Service]
+Type=oneshot
+User=$DEPLOY_USER
+WorkingDirectory=$APP_DIR
+Environment=BACKUP_DIR=$BACKUP_DIR
+ExecStart=/usr/local/bin/raketa-backup
+CONF
+cat > /etc/systemd/system/raketa-backup.timer <<'CONF'
+[Unit]
+Description=Копия базы раз в сутки
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+# Пропущенный прогон (машина была выключена) делается после загрузки:
+# иначе каждый простой оставлял бы сутки без копии.
+Persistent=true
+RandomizedDelaySec=300
+Unit=raketa-backup.service
+
+[Install]
+WantedBy=timers.target
+CONF
+systemctl daemon-reload
+systemctl enable --now raketa-backup.timer
+systemctl list-timers raketa-backup.timer --no-pager | head -3
 
 say "ожидание домена"
 cat > /etc/systemd/system/raketa-cert.service <<CONF

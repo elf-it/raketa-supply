@@ -27,6 +27,7 @@ CERT = DEPLOY / "cert.sh"
 REDEPLOY = DEPLOY / "deploy.sh"
 WATCH = DEPLOY / "watch.sh"
 REFRESH = DEPLOY / "refresh-demo.py"
+BACKUP = DEPLOY / "backup.sh"
 WORKFLOW = ROOT / ".github" / "workflows" / "deploy.yml"
 COMPOSE = ROOT / "docker-compose.prod.yml"
 EXAMPLE = ROOT / ".env.prod.example"
@@ -35,6 +36,16 @@ RUNBOOK = ROOT / "docs" / "09-runbook.md"
 
 def text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _code(path: Path) -> str:
+    """Файл без строк-комментариев.
+
+    Решения в этих файлах объяснены теми же словами, какими записаны,
+    и поиск по всему тексту находил бы объяснение вместо самого решения.
+    На этом один тест уже прошёл, ничего не проверив.
+    """
+    return "\n".join(line for line in text(path).splitlines() if not line.lstrip().startswith("#"))
 
 
 @pytest.fixture(scope="module")
@@ -123,6 +134,84 @@ def test_redeploy_runs_the_installed_copy_not_the_file_it_overwrites():
     # raketa-cert systemd запускает от root. Обновляй его deploy.sh — и право
     # на push в репозиторий стало бы правом на root на машине.
     assert "/usr/local/bin/raketa-cert" not in body
+
+
+def test_every_copy_is_verified_by_restoring_it():
+    """Копия, которую ни разу не разворачивали, — предположение о копии.
+
+    Проверяется не наличие файла нужного размера: такой файл, который
+    не восстанавливается, хуже отсутствия файла — он создаёт уверенность.
+    Поэтому каждый прогон разворачивает снимок в отдельную базу и сверяет
+    ревизию схемы и наполнение ключевых таблиц.
+    """
+    code = _code(BACKUP)
+
+    assert "pg_restore" in code, "без разворачивания это не проверка"
+    assert '< "$file"' in code, "разворачивается именно сделанный сейчас файл"
+    assert "CHECK_DB" in code and "create database" in code, "в отдельную базу"
+    assert "alembic_version" in code, "сверяется ревизия схемы"
+    assert '[ "$live_rev" != "$back_rev" ]' in code
+    assert (
+        "drop database if exists" in code and "trap finish EXIT" in code
+    ), "проверочная база удаляется всегда, иначе следующий прогон упрётся в неё"
+
+
+def test_the_snapshot_is_taken_by_the_database_container_itself():
+    """Снимок клиентом другой версии восстанавливается не всегда.
+
+    И узнают об этом в худший день. `pg_dump` берётся из того же образа,
+    что и сервер. Формат custom — он сжат и позволяет восстанавливать
+    выборочно, текстовый льётся только целиком.
+    """
+    code = _code(BACKUP)
+
+    assert "compose exec -T db pg_dump" in code
+    assert "--format=custom" in code
+
+
+def test_a_failed_copy_is_not_left_looking_like_a_copy():
+    """Файл-обрубок в каталоге копий опаснее пустого каталога."""
+    code = _code(BACKUP)
+
+    assert 'rm -f "$file"' in code, "неудачный снимок удаляется"
+    assert "СБОЙ" in code, "в состоянии должно остаться слово о сбое"
+    assert "КОПИЯ НЕ СДЕЛАНА" in code, "молчащий сбой копии — худший из исходов"
+    assert "MIN_BYTES" in code, "файл меньше порога не может быть снимком"
+
+
+def test_retention_is_a_number_not_until_the_disk_runs_out():
+    """Срок хранения — это решение, а значит, число, записанное в одном месте."""
+    code = _code(BACKUP)
+
+    assert "KEEP=${KEEP:-14}" in code
+    assert 'tail -n "+$((KEEP + 1))"' in code, "лишние копии именно удаляются"
+
+
+def test_copies_living_on_the_same_machine_are_named_as_a_limit():
+    """Потеря диска или VPS забирает и базу, и копии.
+
+    Куда их увозить — решение с чужим адресом и чужими ключами, его
+    принимает владелец данных. Молчать об этом нельзя: иначе «копии есть»
+    будет означать не то, что думает читатель.
+    """
+    code = _code(BACKUP)
+    runbook = text(RUNBOOK)
+
+    assert "BACKUP_SYNC_CMD" in code, "место для увоза наружу оставлено"
+    assert "наружу копии не увозятся" in code, "и сказано, когда его не задали"
+    assert "той же машине" in runbook
+
+
+def test_the_backup_timer_runs_daily_and_not_as_root():
+    """Копию делает тот же пользователь, что владеет каталогом и compose."""
+    install = text(INSTALL)
+
+    assert "raketa-backup.timer" in install and "raketa-backup.service" in install
+    assert "OnCalendar=*-*-* 03:30:00" in install
+    assert "Persistent=true" in install, "пропущенный прогон иначе оставит сутки без копии"
+    # Именно в блоке этой службы, а не где-нибудь в файле.
+    block = install.split("raketa-backup.service <<CONF", 1)[1].split("\nCONF", 1)[0]
+    assert "User=$DEPLOY_USER" in block
 
 
 def test_refreshing_demo_data_keeps_the_passwords_that_were_handed_out():

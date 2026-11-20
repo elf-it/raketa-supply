@@ -43,6 +43,7 @@ READY_URL=${READY_URL:-http://127.0.0.1:8080/api/v1/health/ready}
 HEALTH_TRIES=${HEALTH_TRIES:-40}
 INSTALLED_COPY=${INSTALLED_COPY:-/usr/local/bin/raketa-deploy}
 INSTALLED_WATCH=${INSTALLED_WATCH:-/usr/local/bin/raketa-watch}
+INSTALLED_BACKUP=${INSTALLED_BACKUP:-/usr/local/bin/raketa-backup}
 
 say() { printf '%s %s\n' "$(date '+%F %T')" "$*"; }
 
@@ -134,5 +135,6 @@ update_copy() {
 
 update_copy "$APP_DIR/deploy/deploy.sh" "$INSTALLED_COPY"
 update_copy "$APP_DIR/deploy/watch.sh" "$INSTALLED_WATCH"
+update_copy "$APP_DIR/deploy/backup.sh" "$INSTALLED_BACKUP"
 
 say "готово: $(git rev-parse --short HEAD)"
