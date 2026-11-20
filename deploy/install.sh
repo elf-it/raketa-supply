@@ -23,7 +23,6 @@ DOMAIN=${DOMAIN:-atl73.ru}
 EXTRA_NAMES=${EXTRA_NAMES:-www.$DOMAIN}
 SERVER_IP=${SERVER_IP:-}
 APP_DIR=${APP_DIR:-/opt/raketa}
-REPO=${REPO:-elf-it/raketa-supply}
 UPSTREAM=${UPSTREAM:-127.0.0.1:8080}
 DEPLOY_USER=${DEPLOY_USER:-deploy}
 ACME_ROOT=${ACME_ROOT:-/var/www/acme}
@@ -103,7 +102,6 @@ After=network-online.target docker.service
 Type=oneshot
 User=$DEPLOY_USER
 WorkingDirectory=$APP_DIR
-Environment=REPO=$REPO
 ExecStart=/usr/local/bin/raketa-watch
 CONF
 cat > /etc/systemd/system/raketa-watch.timer <<'CONF'

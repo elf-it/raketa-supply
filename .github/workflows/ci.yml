@@ -52,3 +52,29 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
+
+  # Метка «этот коммит проверен» (задача A-11). Ветка `ci-green` — не для
+  # людей: это указатель на последний коммит main, прошедший обе проверки.
+  #
+  # Зачем он: сервер сам замечает правки и выкладывает только проверенное
+  # (deploy/watch.sh). Раньше он спрашивал у публичного API GitHub состояние
+  # проверок коммита — на приватном репозитории такой запрос требует токена,
+  # то есть ещё одного секрета на машине и ещё одного срока его действия.
+  # Указатель в самом репозитории читается тем же ключом, которым сервер
+  # и так забирает код: `git ls-remote origin refs/heads/ci-green`. Ни API,
+  # ни токена, ни предела запросов.
+  #
+  # Права `contents: write` — минимальные из нужных, и только у этого задания.
+  # Перезапуск CI на старом коммите сдвинет указатель назад, и сервер честно
+  # откатится на него: это свойство, а не оплошность — выложено ровно то,
+  # что последним признали проверенным.
+  green:
+    name: Отметка «проверено»
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: git push --force origin HEAD:refs/heads/ci-green

@@ -18,6 +18,10 @@
 #   на боевой машине кончается конфликтом в три часа ночи. Настройки не
 #   страдают: .env в .gitignore, его reset не трогает.
 #
+# * **Выкладывается проверенное, а не вершина main.** Указатель `ci-green`
+#   ставит сам CI (задача A-11): на main может лежать правка, о которой уже
+#   известно, что она сломана.
+#
 # * **Откат при неудаче.** Если после сборки приложение не отвечает, скрипт
 #   возвращает прежний коммит и поднимает его заново. Выкладка, оставившая
 #   сайт лежать, хуже невыложенной правки.
@@ -27,7 +31,10 @@
 set -euo pipefail
 
 APP_DIR=${APP_DIR:-/opt/raketa}
-BRANCH=${DEPLOY_BRANCH:-main}
+#: Выкладывается `ci-green` — указатель на коммит, прошедший проверки
+#: (задача A-11), а не `main`: на main может лежать правка, о которой уже
+#: известно, что она сломана. Выложить что-то другое: DEPLOY_BRANCH=main.
+BRANCH=${DEPLOY_BRANCH:-ci-green}
 COMPOSE_FILE=${COMPOSE_FILE:-docker-compose.prod.yml}
 # Проверка живости идёт через тот же nginx, что отдаёт сайт: так проверяется
 # вся цепочка, а не один контейнер.
@@ -64,8 +71,11 @@ wait_healthy() {
 before=$(git rev-parse HEAD)
 say "было: $(git log --oneline -1)"
 
-git fetch --quiet --prune origin "$BRANCH"
-git reset --quiet --hard "origin/$BRANCH"
+# Refspec целиком и со знаком `+`: указатель проверенного может сдвинуться
+# назад (перезапуск CI на старом коммите), и без принудительного обновления
+# такая выборка была бы отвергнута как не-fast-forward.
+git fetch --quiet origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+git reset --quiet --hard "refs/remotes/origin/$BRANCH"
 after=$(git rev-parse HEAD)
 
 if [ "$before" = "$after" ]; then

@@ -134,36 +134,66 @@ def test_redeploy_rolls_back_when_the_site_does_not_answer():
     assert "flock -n 9" in body, "два `up --build` на двух ядрах — это OOM"
 
 
-def test_the_watcher_spends_the_api_limit_only_when_there_is_news():
-    """Опрос API каждые две минуты — половина предела для неавторизованных.
+def test_the_watcher_needs_nothing_but_the_key_it_already_has():
+    """Приватному репозиторию запрос к API GitHub требует токена (задача A-11).
 
-    Предел в 60 запросов в час считается на адрес, то есть делился бы со всем
-    остальным, что спросит GitHub с этой машины. `git ls-remote` не ограничен
-    ничем, поэтому он идёт первым, а до API дело доходит только когда правки
-    действительно есть. Порядок здесь — и есть смысл решения.
+    Токен — это ещё один секрет на машине и ещё один срок его действия.
+    Указатель проверенного лежит в самом репозитории и читается тем же
+    ключом, которым сервер и так забирает код, поэтому сторож не должен
+    обращаться ни к API, ни к чему-то, что просит отдельный доступ.
     """
-    # Решение объяснено в шапке скрипта теми же словами, поэтому порядок
-    # проверяется по исполняемым строкам: иначе тест сверял бы комментарий.
+    # Решение объяснено в шапке скрипта, поэтому проверяются исполняемые
+    # строки: иначе тест сверял бы комментарий.
     code = "\n".join(line for line in text(WATCH).splitlines() if not line.lstrip().startswith("#"))
 
-    assert "git ls-remote" in code and "api.github.com" in code
-    assert code.index("git ls-remote") < code.index("api.github.com")
-    assert "check-runs" in code, "нужно состояние проверок коммита"
+    assert "git ls-remote" in code
+    assert "api.github.com" not in code, "API вернул бы токен в список секретов"
+    assert "curl" not in code and "TOKEN" not in code
 
 
-def test_the_watcher_deploys_only_what_ci_passed():
-    """Пока проверки идут — тик ничего не делает: следующий через две минуты."""
-    body = text(WATCH)
+def test_the_watcher_deploys_only_what_ci_marked_green():
+    """Пока проверки идут, указатель стоит на прежнем коммите — и тик молчит.
 
-    assert 'status") != "completed"' in body, "идущие проверки — не зелёные"
-    assert "нет проверок" in body, "проверки могли не начаться — это не зелёный"
-    # Пропущенное задание (включаемая выкладка через Actions) приходит
-    # с conclusion "skipped". Считать его красным — значит ждать зелёного
-    # вечно; это нашлось на живом прогоне, а не здесь.
-    assert '{"success", "skipped", "neutral"}' in body
-    assert 'conclusion") not in OK' in body
-    assert "/usr/local/bin/raketa-deploy" in body
+    Метку ставит сам CI после обеих проверок; имя ветки написано и в рабочем
+    процессе, и в сторожке, и разъехаться им нельзя — иначе сторож ждал бы
+    отметки, которую никто не ставит.
+    """
+    code = text(WATCH)
+    # Разбор, а не поиск строки: те же слова стоят в комментариях рядом,
+    # и поиск нашёл бы объяснение решения вместо самого решения.
+    green = yaml.safe_load(text(ROOT / ".github" / "workflows" / "ci.yml"))["jobs"]["green"]
+    pushes = " ".join(str(step.get("run", "")) for step in green["steps"])
+
+    assert "ci-green" in code
+    assert "refs/heads/ci-green" in pushes, "метку ставит CI, и имя у неё одно"
+    assert green["needs"] == ["backend", "frontend"], "метка после обеих проверок"
+    assert green["permissions"] == {"contents": "write"}, "иначе push отметки не пройдёт"
+    assert "refs/heads/main" in green["if"], "метка только с main"
+    assert "/usr/local/bin/raketa-deploy" in code
     assert "raketa-watch.timer" in text(INSTALL), "без таймера скрипт никто не позовёт"
+
+
+def test_the_watcher_says_when_it_cannot_see_the_mark():
+    """Молчащий сторож при пропавшем доступе — это «работает, а правки не едут».
+
+    После перевода репозитория в приватный это главный способ сломаться:
+    ключ отозван или не настроен, `ls-remote` возвращает пустоту, и сторож
+    обязан сказать об этом в журнал, а не тихо ничего не делать.
+    """
+    code = text(WATCH)
+
+    assert "нет отметки проверенного" in code
+    assert "GitHub недоступен или нет доступа" in code
+
+
+def test_the_deployment_takes_the_marked_commit_not_the_tip_of_main():
+    """На main может лежать правка, о которой уже известно, что она сломана."""
+    body = text(REDEPLOY)
+
+    assert "DEPLOY_BRANCH:-ci-green" in body
+    # Знак `+` в refspec: указатель может сдвинуться назад (перезапуск CI
+    # на старом коммите), и без него выборка была бы отвергнута.
+    assert "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" in body
 
 
 def test_github_actions_deployment_stays_opt_in():
