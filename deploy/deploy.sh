@@ -113,13 +113,26 @@ docker image prune -f >/dev/null 2>&1 || true
 # systemd запускает от root, и позволять правкам в репозитории менять его
 # содержимое значило бы делать из права на push право на root. Его обновляет
 # install.sh, то есть человек с правами root.
-for pair in "deploy.sh:$INSTALLED_COPY" "watch.sh:$INSTALLED_WATCH"; do
-    src="$APP_DIR/deploy/${pair%%:*}"
-    dst=${pair##*:}
-    if [ -w "$dst" ] && ! cmp -s "$src" "$dst"; then
-        install -m 0755 "$src" "$dst"
+#
+# Запись идёт **в существующий файл**, а не заменой файла. `install` и `cp`
+# сначала снимают прежний, а для этого нужно право записи в каталог, которого
+# у `deploy` на /usr/local/bin нет и быть не должно: владеть файлом мало.
+# Именно на этом обновление копий молча не работало, а `set -e` ещё и ронял
+# прогон уже после удачной выкладки — то есть удавшееся развёртывание
+# сообщало об ошибке. Права и владелец копии при такой записи сохраняются.
+update_copy() {
+    local src=$1 dst=$2
+    cmp -s "$src" "$dst" && return 0
+    if cat "$src" > "$dst" 2>/dev/null; then
         say "$(basename "$dst") обновлён — новая версия сработает со следующего раза"
+    else
+        # Не повод считать выкладку неудачной: приложение уже работает.
+        # Но и молчать нельзя — правка скрипта иначе не вступит в силу никогда.
+        say "НЕ УДАЛОСЬ обновить $dst — правка скрипта не вступит в силу, нужен root"
     fi
-done
+}
+
+update_copy "$APP_DIR/deploy/deploy.sh" "$INSTALLED_COPY"
+update_copy "$APP_DIR/deploy/watch.sh" "$INSTALLED_WATCH"
 
 say "готово: $(git rev-parse --short HEAD)"

@@ -124,6 +124,25 @@ def test_redeploy_runs_the_installed_copy_not_the_file_it_overwrites():
     assert "/usr/local/bin/raketa-cert" not in body
 
 
+def test_the_installed_copies_are_written_not_replaced():
+    """Замена файла требует права записи в каталог, а не владения файлом.
+
+    `install` и `cp` сначала снимают прежний файл, и для этого нужно право
+    записи в /usr/local/bin, которого у `deploy` нет и быть не должно.
+    На этом обновление копий молча не работало два дня, а `set -e` ронял
+    прогон уже после удачной выкладки — удавшееся развёртывание сообщало
+    об ошибке. Нашлось на живом сервере; тест закрывает возврат к замене.
+    """
+    body = text(REDEPLOY)
+    # Шапка объясняет решение теми же словами, поэтому смотрим на код.
+    code = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("#"))
+
+    assert 'cat "$src" > "$dst"' in code
+    assert "install -m" not in code, "замена файла снова вернула бы отказ в праве"
+    assert "cp " not in code
+    assert "нужен root" in code, "неудача обновления копии должна быть видна"
+
+
 def test_redeploy_rolls_back_when_the_site_does_not_answer():
     """Выкладка, оставившая сайт лежать, хуже невыложенной правки."""
     body = text(REDEPLOY)
