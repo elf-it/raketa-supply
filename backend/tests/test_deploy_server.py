@@ -13,7 +13,10 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -51,6 +54,32 @@ def _code(path: Path) -> str:
 @pytest.fixture(scope="module")
 def site() -> str:
     return text(SITE)
+
+
+@pytest.mark.parametrize(
+    "script", sorted(p.name for p in DEPLOY.glob("*.sh")), ids=lambda name: name
+)
+def test_the_shell_scripts_parse(script):
+    """`bash -n` на каждый скрипт развёртывания.
+
+    Эти файлы не исполняются ни тестами, ни линтером, и за один день
+    синтаксическая ошибка в них дважды доехала до сервера — оба раза
+    её нашёл живой прогон, а не проверка. Там, где bash есть (CI, сам
+    сервер), он разберёт их за миллисекунды.
+    """
+    if os.name == "nt":
+        # В Windows `bash` в PATH — это переходник WSL: он не разберёт
+        # windows-путь к файлу, а на этой машине ещё и не запускается вовсе.
+        pytest.skip("на Windows проверку делают CI и сам сервер")
+    bash = shutil.which("bash")
+    if bash is None:
+        pytest.skip("bash на этой машине нет")
+
+    done = subprocess.run(  # noqa: S603  (путь получен от which, аргумент — свой файл)
+        [bash, "-n", str(DEPLOY / script)], capture_output=True, text=True, timeout=30
+    )
+
+    assert done.returncode == 0, done.stderr
 
 
 def test_the_external_nginx_adds_exactly_one_hop(site):
@@ -311,6 +340,26 @@ def test_the_watcher_deploys_only_what_ci_marked_green():
     assert "refs/heads/main" in green["if"], "метка только с main"
     assert "/usr/local/bin/raketa-deploy" in code
     assert "raketa-watch.timer" in text(INSTALL), "без таймера скрипт никто не позовёт"
+
+
+def test_the_watcher_distinguishes_no_changes_from_a_stuck_ci():
+    """«Правок нет» и «правки есть, но CI их не благословил» — разные вещи.
+
+    Назвать второе первым — значит назвать застрявший CI исправной работой.
+    Именно так простой CI из-за минут Actions прожил незамеченным: сторож
+    каждые две минуты писал «правок нет», пока три коммита лежали
+    непроверенными (задача A-13).
+    """
+    code = _code(WATCH)
+
+    # Проверяется само условие, а не текст сообщения рядом: сообщение
+    # остаётся на месте и при выключенной проверке.
+    assert '[ "$tip" != "$green" ]' in code, "расхождение метки и main не сравнивается"
+    assert '"refs/heads/$GREEN_REF" "refs/heads/$MAIN_REF"' in code, "вершина не спрашивается"
+    assert "но main на" in code, "расхождение должно называться словами"
+    assert "CI до отметки не дошёл" in code
+    # Один запрос на оба указателя: второй вызов ничего не добавляет.
+    assert code.count("git ls-remote") == 1
 
 
 def test_the_watcher_says_when_it_cannot_see_the_mark():

@@ -42,6 +42,10 @@ esac
 APP_DIR=${APP_DIR:-/opt/raketa}
 #: Указатель на проверенное. Его ставит CI; руками эту ветку не двигают.
 GREEN_REF=${GREEN_REF:-ci-green}
+#: Ветка разработки — нужна только чтобы отличить «правок нет» от «правки
+#: есть, но CI до отметки не дошёл». Это разные вещи, и молчать об одной
+#: из них словами другой нельзя.
+MAIN_REF=${MAIN_REF:-main}
 STATE=${STATE:-$APP_DIR/.watch-state}
 DEPLOY=${DEPLOY:-/usr/local/bin/raketa-deploy}
 
@@ -56,7 +60,16 @@ note() {
     fi
 }
 
-green=$(git ls-remote origin "refs/heads/$GREEN_REF" 2>/dev/null | cut -f1)
+# Один запрос на оба указателя: лишний вызов ничего не добавляет.
+refs=$(git ls-remote origin "refs/heads/$GREEN_REF" "refs/heads/$MAIN_REF" 2>/dev/null || true)
+green=$(printf '%s\n' "$refs" | awk -v r="refs/heads/$GREEN_REF" '$2 == r {print $1}')
+tip=$(printf '%s\n' "$refs" | awk -v r="refs/heads/$MAIN_REF" '$2 == r {print $1}')
+
+if [ -z "$green" ] && [ -n "$tip" ]; then
+    # Репозиторий читается, а отметки нет вовсе: CI ни разу не дошёл до неё.
+    note "отметки $GREEN_REF нет, а main на ${tip:0:7}: CI не ставил отметку ни разу"
+    exit 0
+fi
 if [ -z "$green" ]; then
     # Либо GitHub недоступен, либо ключ доступа перестал работать, либо CI
     # ни разу не доходил до отметки. Во всех случаях выкладывать нечего,
@@ -66,7 +79,14 @@ if [ -z "$green" ]; then
 fi
 
 if [ "$green" = "$(git rev-parse HEAD)" ]; then
-    note "правок нет: $(git rev-parse --short HEAD)"
+    if [ -n "$tip" ] && [ "$tip" != "$green" ]; then
+        # Выложено всё проверенное — но в main лежит непроверенное. Сказать
+        # здесь «правок нет» значило бы назвать застрявший CI исправной
+        # работой: именно так простой CI из-за оплаты минут прожил незамеченным.
+        note "выложено проверенное ${green:0:7}, но main на ${tip:0:7}: CI до отметки не дошёл"
+    else
+        note "правок нет: $(git rev-parse --short HEAD)"
+    fi
     exit 0
 fi
 
